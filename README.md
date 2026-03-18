@@ -2,10 +2,12 @@
 A simple build system.
 
 ## Usage
-MAKEFILE_PARAM=... ./bob.sh build   [targets]
-MAKEFILE_PARAM=... ./bob.sh rebuild [targets]
-MAKEFILE_PARAM=... ./bob.sh clean   [targets]
-MAKEFILE_PARAM=... ./bob.sh mkpatch [targets]
+```shell
+$ MAKEFILE_PARAM=... ./bob.sh build   [targets]
+$ MAKEFILE_PARAM=... ./bob.sh rebuild [targets]
+$ MAKEFILE_PARAM=... ./bob.sh clean   [targets]
+$ MAKEFILE_PARAM=... ./bob.sh mkpatch [targets]
+```
 
 If the first target specified in targets is "all", then it is
 expanded out to be everything in the ./targets folder
