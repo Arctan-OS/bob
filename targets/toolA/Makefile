@@ -1,5 +1,5 @@
-ARC_DEPS := toolB toolC
-ARC_VERSION := 123456
+DEPS := toolB toolC
+VERSION := 123456
 
 .PHONY: build
 build:
@@ -15,8 +15,8 @@ prepare-rebuild:
 
 .PHONY: get-deps
 get-deps:
-	@echo $(ARC_DEPS)
+	@echo $(DEPS)
 
 .PHONY: get-version
 get-version:
-	@echo $(ARC_VERSION)
+	@echo $(VERSION)
