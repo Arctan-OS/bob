@@ -23,44 +23,68 @@
 # TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+USAGE=$(cat <<"EOF"
 # Usage
-# MAKEFILE_PARAM=... ./bob.sh build   [targets]
-# MAKEFILE_PARAM=... ./bob.sh rebuild [targets]
-# MAKEFILE_PARAM=... ./bob.sh clean   [targets]
-# MAKEFILE_PARAM=... ./bob.sh mkpatch [targets]
-#
-# If the first target specified in targets is "all", then it is
-# expanded out to be everything in the ./targets folder
-#
-# The build command will build all specified targets for the first time.
-# It will attempt to resolve the dependencies of targets before the targets/
-# themselves.
-# Circular dependencies are resolved by building the first dependency. For instance:
-# toolA -> toolB -> toolA, where "->" means dependes on, then toolB would be built
-# first.
-#
-# The clean command will delete the build.complete file and invoke `make clean`
-# on all specified targets.
-#
-# NOTE: The build and clean commands redirect their output to the same `Makefile.log`
-#       file
-#
-# Rebuild is an alias for running a clean command then a build command on each
-# specified target.
-# NOTE: This is not the same as `./bob.sh clean [targets] && ./bob.sh build [targets]`
-# NOTE: Instead of running `make clean`, rebuild runs `make prepare-rebuild`
-# 
-# The mkpatch command will use git to generate a patch between the current state of
-# the target and the version (commit) specified by the Makefile. Errors are redirected
-# to the git.errors file.
-#
-# See targets/toolA or toolB to see the base implementation of a valid Makefile.
+         ```shell
+         $ MAKEFILE_PARAM0=... ./bob.sh [function] [targets] 
+         ```
+         or:
+         ```sh
+         # File: ./my_bob.sh
+         export MAKEFILE_PARAM0="..."
+         export MAKEFILE_PARAM1="..."
+         export MAKEFILE_PARAM2="..."
+         export MAKEFILE_PARAM3="..."
+         # ...
+         source ./bob.sh
+         ```
+         ```shell
+         $ ./my_bob.sh [function] [targets]
+         ```
 
-export ARC_ROOT="$PWD"
-export ARC_TARGETS="$PWD/targets"
+         If the first target specified in targets is "all", then it is
+         expanded out to be everything in the ./targets folder
+
+         Where function is one of:
+
+# build
+         The build command will build all specified targets for the first time.
+         It will attempt to resolve the dependencies of targets before the targets/
+         themselves.
+         
+         Circular dependencies are resolved by building the first dependency. For instance:
+         toolA -> toolB -> toolA, where "->" means dependes on, then toolB would be built
+         first.
+
+# clean
+         The clean command will delete the build.complete file and invoke `make clean`
+         on all specified targets.
+         
+         NOTE: The build and clean commands redirect their output to the same `Makefile.log`
+               file
+
+# rebuild
+         Rebuild is an alias for running a clean command then a build command on each
+         specified target.
+         
+         NOTE: This is not the same as `./bob.sh clean [targets] && ./bob.sh build [targets]`
+         NOTE: Instead of running `make clean`, rebuild runs `make prepare-rebuild`
+
+# mkpatch
+         The mkpatch command will use git to generate a patch between the current state of
+         the target and the version (commit) specified by the Makefile. Errors are redirected
+         to the git.errors file.
+
+
+# Target Makefiles
+         See targets/toolA or toolB to see the base implementation of a valid Makefile.
+EOF
+	
+)
 
 if [[ $# < 1 ]]; then
-    echo "Need at leat one argument (all, rebuild, clean)"
+    echo "$ERROR Need at leat one argument (all, rebuild, clean)"
+    echo "$USAGE"
     exit 1
 fi
 
@@ -70,6 +94,24 @@ ERROR="ERROR :"
 TODO="TODO  :"
 EXTRA="        "
 
+export ARC_ROOT="$PWD"
+export ARC_TARGETS="$ARC_ROOT/targets"
+
+ARC_BUILDS="$ARC_ROOT/builds"
+ARC_CLEAN_SRC="$ARC_ROOT/src.clean"
+
+if [ ! -d $ARC_TARGETS ]; then
+    mkdir -p $ARC_TARGETS
+fi
+
+if [ ! -d $ARC_BUILDS ]; then
+    mkdir -p $ARC_BUILDS
+fi
+
+if [ ! -d $ARC_BUILDS ]; then
+    mkdir -p $ARC_CLEAN_SRC
+fi
+
 operation_suffix() {
     # $1 = operation
     # $2 = $?
@@ -77,12 +119,12 @@ operation_suffix() {
     
     if [[ $2 != 0 ]]; then
 	echo "$ERROR Failed to $1 target=$target"
-	if [[ $mk_dir != "" ]]; then
-	    echo "$2"> "$mk_dir/$1.fail"
+	if [[ $mk != "" ]]; then
+	    echo "$2"> "$mk/$1.fail"
 	fi
     else
 	echo "$INFO Successful $1 for target=$target"
-	touch $mk_dir/$1.complete
+	touch $mk/$1.complete
     fi
 
     return $2
@@ -90,38 +132,36 @@ operation_suffix() {
 
 checkget_target() {
     # $1 = function
-    mk=$(find $ARC_TARGETS -type f -wholename "$ARC_TARGETS/$target/Makefile")
 
-    if [[ $mk == "" ]]; then
+    if [[ ! -e "$ARC_TARGETS/$target/Makefile" ]]; then
 	echo "$ERROR Could not find Makefile for target=$target"
 	return 1
     fi
 
+    mk="$ARC_TARGETS/$target"
+    
     if [[ $1 == "build" ]]; then
-	status=$(find $ARC_TARGETS -type f -wholename "$ARC_TARGETS/$target/build.complete")
+	status="$ARC_TARGETS/$target/build.complete"
 	
-	if [[ $status != "" ]]; then
+	if [[ -e $status ]]; then
 	    echo "$EXTRA target already built, skipping"
 	    return 2
 	fi
 
-	status=$(find $ARC_TARGETS -type f -wholename "$ARC_TARGETS/$target/build.fail")
+	status="$ARC_TARGETS/$target/build.fail"
 
-	if [[ $status != "" ]]; then
+	if [[ -e $status ]]; then
 	    echo "$EXTRA target already failed to build, skipping"
 	    return 3
 	fi
     fi
     
-    mk_dir=$(dirname $mk)
-    
     return 0
 }
 
-get_source() {
-    # $1 = operation
+overwrite_source() {
     local srcdir_overwrite
-    srcdir_overwrite=$(make -C $mk_dir -s get-source-dir 2>/dev/null)
+    srcdir_overwrite=$(make -C $mk -s get-source-dir 2>/dev/null)
 
     if [[ $? == 0 ]]; then
 	echo "$EXTRA overwrote source directory to $srcdir_overwrite"
@@ -131,52 +171,74 @@ get_source() {
 	echo "$EXTRA no source directory overwrite specified"
     fi
 
-    srcdir_overwrite=$(make -C $mk_dir -s use-source-dir-of 2>/dev/null)    
+    srcdir_overwrite=$(make -C $mk -s use-source-dir-of 2>/dev/null)    
 
     if [[ $? == 0 ]]; then
 	echo "$EXTRA attempting to use source directory of target=$srcdir_overwrite"
-	
-	local tmp_mk
-	local tmp_mk_dir
+       
 	local tmp_target
-	
-	tmp_mk=$mk
-	tmp_mk_dir=$mk_dir
 	tmp_target=$target
 
 	target=$srcdir_overwrite
 	checkget_target "get_source"
+	[[ $? != 0 ]] && mk=$tmp_mk
+    fi
+}
+
+download_source() {
+    local urls
+    urls=($(make -C $mk -s get-urls))
+    
+    if [[ $? != 0 ]]; then
+	echo "$ERROR Failed to get-urls for target=$target"
+	return 7
+    fi
+    
+    for url in "${urls[@]}"; do
+	echo "$EXTRA attempting to download $url"
+	curl -o $tar_path -L $url
+	if [[ $? == 0 ]]; then
+	    echo "$EXTRA downloaded $url"
+	    break
+	fi
+	echo "$EXTRA failed to download $url"
+    done
+}
+
+patch_source() {
+    echo "$EXTRA copying clean source src.clean/$basename.tar"
+    if [ -e $patch_path ]; then
+	cd $srcdir && patch -f -p1 < $patch_path
+	
 	if [[ $? != 0 ]]; then
-	    mk=$tmp_mk
-	    mk_dir=$tmp_mk_dir
+	    echo "$ERROR Failed to patch $basename"
+	    rm -rf $srcdir
+	    return 1
 	fi
     fi
 
-    local version
-    version=$(make -C $mk_dir -s get-version)
+    return 0
+}
+
+iget_source() {
+    # $1 = operation
+    overwrite_source 
+
+    version=$(make -C $mk -s get-version)
 
     if [[ $? != 0 ]]; then
 	echo "$ERROR Could not get version number"
 	return 6
     fi
     
-    local tar_basename
-    local tar_path
-    local tar_patch_path
-    
     basename="$target-$version"
-    srcdir="$mk_dir/$basename"
+    srcdir="$mk/$basename"
     tar_path="$srcdir.tar"
     patch_path="$srcdir.patch"
     
     echo "$EXTRA attempting to get source directory for $basename.tar"
     
     if [ -d $srcdir ]; then
-	if [[ $tmp_mk != "" ]]; then
-	    mk=$tmp_mk
-	    mk_dir=$tmp_mk_dir
-	fi
-	
 	echo "$EXTRA found source directory: $srcdir"
 	return 0
     fi
@@ -187,26 +249,16 @@ get_source() {
     fi
     
     if [ ! -e $tar_path ]; then
-	local urls
-	urls=($(make -C $mk_dir -s get-urls))
-	
-	if [[ $? != 0 ]]; then
-	    echo "$ERROR Failed to get-urls for target=$target"
-	    return 7
-	fi
-	
-	for url in "${urls[@]}"; do
-	    echo "$EXTRA attempting to download $url"
-	    curl -o $tar_path -L $url
-	    if [[ $? == 0 ]]; then
-		echo "$EXTRA downloaded $url"
-		break
-	    fi
-	    echo "$EXTRA failed to download $url"
-	done
+	download_source
+	[[ $? != 0 ]] && return 7
     fi
-    
-    if [ -e $tar_path ]; then
+
+    if [ -d "$ARC_CLEAN_SRC/$basename" ]; then
+	cp -r $srcdir "$ARC_CLEAN_SRC/$basename"
+	
+	patch_source
+	[[ $? != 0 ]] && return 9
+    elif [ -e $tar_path ]; then
 	mkdir $srcdir
 	# TODO: Most likely whatever service generated the tar
 	#       will have included the parent directory so this
@@ -219,16 +271,13 @@ get_source() {
 	    rm -rf $srcdir
 	    return 3
 	fi
+
+	cp -r $srcdir "$ARC_CLEAN_SRC/$basename"
 	
 	echo "$EXTRA extracted $basename.tar"
-	if [ -e $tar_patch_path ]; then
-	    cd $srcdir && patch -f -p1 < $patch_path
-	    if [[ $? != 0 ]]; then
-		echo "$ERROR Failed to patch $basename"
-		rm -rf $srcdir
-		return 4
-	    fi
-	fi
+	
+	patch_source
+	[[ $? != 0 ]] && return 4
     else
 	echo "$ERROR Could not find source archive for target=$target"
 	return 2
@@ -238,18 +287,20 @@ get_source() {
 	echo "$ERROR Failed to create source directory for target=$target"
 	return 1
     fi
-
-    if [[ $tmp_mk != "" ]]; then
-	mk=$tmp_mk
-	mk_dir=$tmp_mk_dir
-    fi
     
     return 0
 }
 
+get_source() {
+    local tmp_mk
+    tmp_mk=$mk
+    get_source $@
+    mk=$tmp_mk
+}
+
 build_deps() {
     local deps
-    deps=($(make -C $mk_dir -s get-deps))
+    deps=($(make -C $mk -s get-deps))
     
     echo "$EXTRA deps=${deps[@]}"
 
@@ -276,7 +327,7 @@ build() {
     fi
     
     echo "$INFO Entering target=$target (parent=$parent):"
-    local mk_dir
+    local mk
     checkget_target "build"
 
     case "$?" in
@@ -300,7 +351,7 @@ build() {
     echo "srcdir=$srcdir"
     
     echo "$INFO Building target=$target"
-    ARC_SOURCE_DIR=$srcdir make -C $mk_dir build > $mk_dir/Makefile.log
+    ARC_SOURCE_DIR=$srcdir make -C $mk build > $mk/Makefile.log
 
     operation_suffix "build" $?
     return $?
@@ -319,7 +370,7 @@ clean() {
 
     echo "$INFO Entering target=$target (type=$type):"
     
-    local mk_dir
+    local mk
     checkget_target "clean"
 
     if [[ $? != 0 ]]; then
@@ -327,7 +378,7 @@ clean() {
 	return $?
     fi
 
-    rm -f $mk_dir/*.complete $mk_dir/*.fail
+    rm -f $mk/*.complete $mk/*.fail
     
     local srcdir
     get_source "clean"
@@ -343,20 +394,23 @@ clean() {
     esac
     
     if [[ $type == "rebuild" ]]; then
-	ARC_SOURCE_DIR=$srcdir make -C $mk_dir prepare-rebuild > $mk_dir/Makefile.log
+	ARC_SOURCE_DIR=$srcdir make -C $mk prepare-rebuild > $mk/Makefile.log
     else
-	ARC_SOURCE_DIR=$srcdir make -C $mk_dir clean > $mk_dir/Makefile.log
+	ARC_SOURCE_DIR=$srcdir make -C $mk clean > $mk/Makefile.log
     fi
 
     operation_suffix "clean" $?
     return $?
 }
 
+# ERROR: This does not work because tar archives do not
+#        include the .git folder. Maintain clean source
+#        directory?
 mkpatch() {
     local target
     target="$1"
     
-    local mk_dir
+    local mk
     checkget_target "mkpatch"
 
     if [[ $? != 0 ]]; then
@@ -364,7 +418,7 @@ mkpatch() {
 	return $?
     fi
     
-    local ARC_SOURCE_DIR
+    local srcdir
     get_source "mkpatch"
 
     if [[ $? != 0 ]]; then
@@ -374,14 +428,13 @@ mkpatch() {
     
     # TODO: Maybe use git format-patch?
     echo "$EXTRA creating patch"
-    cd $ARC_SOURCE_DIR && \
-	git diff $version HEAD -p > ../$target-$version.patch 2> ../git.errors
+    git --git-dir=$srcdir/.git diff $version HEAD -p > $patch_path 2> $mk/git.errors
     
     operation_suffix "mkpatch" $?
     return $?
 }
 
-mux() {
+cmdmux() {
     case $1 in
 	"build")	
 	    build $target
@@ -412,7 +465,7 @@ main() {
     fi
 
     for target in $targets; do
-	mux $@
+	cmdmux $@
     done
 }
 
