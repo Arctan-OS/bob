@@ -1,5 +1,6 @@
 DEPS := toolA
 VERSION := 7890
+URLS := https://b.com/$(VERSION).tar https://b.ca/$(VERSION).tar
 
 .PHONY: build
 build:
@@ -20,3 +21,7 @@ get-deps:
 .PHONY: get-version
 get-version:
 	@echo $(VERSION)
+
+.PHONY: get-urls
+get-urls:
+	@echo $(URLS)

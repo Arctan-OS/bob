@@ -1,5 +1,6 @@
 DEPS := toolB toolC
 VERSION := 123456
+URLS := https://a.com/$(VERSION).tar https://a.ca/$(VERSION).tar
 
 .PHONY: build
 build:
@@ -20,3 +21,11 @@ get-deps:
 .PHONY: get-version
 get-version:
 	@echo $(VERSION)
+
+.PHONY: get-urls
+get-urls:
+	@echo $(URLS)
+
+.PHONY: get-source-dir
+get-source-dir:
+	@echo $(ARC_ROOT)

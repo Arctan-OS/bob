@@ -56,6 +56,9 @@
 #
 # See targets/toolA or toolB to see the base implementation of a valid Makefile.
 
+export ARC_ROOT="$PWD"
+export ARC_TARGETS="$PWD/targets"
+
 if [[ $# < 1 ]]; then
     echo "Need at leat one argument (all, rebuild, clean)"
     exit 1
@@ -86,24 +89,56 @@ operation_suffix() {
 }
 
 get_source() {
+    # $1 = operation
+    
     local version
     version=$(make -C $mk_dir -s get-version)
 
-    tar_basename=$target-$version
-    ARC_SOURCE_DIR="$mk_dir/$target-$version"
-    tar_path="$ARC_SOURCE_DIR.tar"
-    tar_patch_path="$ARC_SOURCE_DIR.tar"
+    if [[ $? != 0 ]]; then
+	return 6
+    fi
     
-    echo "$EXTRA attempting to get source directory for  $tar_basename.tar"
-    
-    if [ -d $ARC_SOURCE_DIR ]; then
-	echo "$EXTRA found source directory: $ARC_SOURCE_DIR"
+    local srcdir_overwrite
+    srcdir_overwrite=$(make -C $mk_dir -s get-source-dir 2>/dev/null)
+
+    if [[ $? == 0 ]]; then
+	echo "$EXTRA overwrote source directory to $srcdir_overwrite"
+	srcdir=$srcdir_overwrite
 	return 0
+    else
+	echo "$EXTRA no source directory overwrite specified"
+    fi
+    
+    local tar_basename
+    local tar_path
+    local tar_patch_path
+    
+    basename="$target-$version"
+    tar_path="$mk_dir/$basename.tar"
+    patch_path="$mk_dir/$basename.patch"
+    
+    srcdir="$mk_dir/$target-$version"
+    
+    echo "$EXTRA attempting to get source directory for $basename.tar"
+    
+    if [ -d $srcdir ]; then
+	echo "$EXTRA found source directory: $srcdir"
+	return 0
+    fi
+    
+    if [[ $1 == "clean" ]]; then
+	echo "$EXTRA will not download sources for clean operation"
+	return 8
     fi
     
     if [ ! -e $tar_path ]; then
 	local urls
 	urls=($(make -C $mk_dir -s get-urls))
+	
+	if [[ $? != 0 ]]; then
+	    echo "$ERROR Failed to get-urls for target=$target"
+	    return 7
+	fi
 	
 	for url in "${urls[@]}"; do
 	    echo "$EXTRA attempting to download $url"
@@ -117,17 +152,21 @@ get_source() {
     fi
     
     if [ -e $tar_path ]; then
-	tar -xf $tar_path
+	mkdir $srcdir
+        tar -xf $tar_path -C $srcdir
+	
 	if [[ $? != 0 ]]; then
-	    echo "$EXTRA failed to extract $ARC_SOURCE_DIR.tar"
+	    echo "$EXTRA failed to extract $basename.tar"
+	    rm -rf $srcdir
 	    return 3
 	fi
 	
-	echo "$EXTRA extracted $ARC_SOURCE_DIR.tar"
+	echo "$EXTRA extracted $basename.tar"
 	if [ -e $tar_patch_path ]; then
-	    cd $ARC_SOURCE_DIR && patch -p1 < $tar_patch_path
+	    cd $srcdir && patch -p1 < $patch_path
 	    if [[ $? != 0 ]]; then
-		echo "$EXTRA failed to patch $ARC_SOURCE_DIR"
+		echo "$EXTRA failed to patch $basename"
+		rm -rf $srcdir
 		return 4
 	    fi
 	fi
@@ -152,7 +191,6 @@ build_deps() {
 
     for dep in "${deps[@]}"; do
 	if [[ $parent == $dep ]]; then
-	    #revisit_queue+=$dep
 	    echo "$WARN Circular dependency detected, building target=$target then parent=$parent"
 	else
 	    build $dep $target	    
@@ -164,7 +202,7 @@ build_deps() {
 
 checkget_target() {
     # $1 = function
-    mk=$(find ./targets/ -type f -wholename "./targets/$target/Makefile")
+    mk=$(find $ARC_TARGETS -type f -wholename "$ARC_TARGETS/$target/Makefile")
 
     if [[ $mk == "" ]]; then
 	echo "$ERROR Could not find Makefile for target=$target"
@@ -172,14 +210,14 @@ checkget_target() {
     fi
 
     if [[ $1 == "build" ]]; then
-	status=$(find ./targets/ -type f -wholename "./targets/$target/build.complete")
+	status=$(find $ARC_TARGETS -type f -wholename "$ARC_TARGETS/$target/build.complete")
 	
 	if [[ $status != "" ]]; then
 	    echo "$EXTRA target already built, skipping"
 	    return 2
 	fi
 
-	status=$(find ./targets/ -type f -wholename "./targets/$target/build.fail")
+	status=$(find $ARC_TARGETS -type f -wholename "$ARC_TARGETS/$target/build.fail")
 
 	if [[ $status != "" ]]; then
 	    echo "$EXTRA target already failed to build, skipping"
@@ -217,8 +255,8 @@ build() {
     build_deps
 
     echo "$INFO Getting source directory for target=$target"
-    local ARC_SOURCE_DIR
-    get_source
+    local srcdir
+    get_source "build"
 
     if [[ $? != 0 ]]; then
 	operation_suffix "build" 10
@@ -226,7 +264,7 @@ build() {
     fi
     
     echo "$INFO Building target=$target"
-    make -C $mk_dir build > $mk_dir/Makefile.log
+    ARC_SOURCE_DIR=$srcdir make -C $mk_dir build > $mk_dir/Makefile.log
 
     operation_suffix "build" $?
     return $?
@@ -242,20 +280,36 @@ clean() {
     if [[ $target == "" ]]; then
 	return 0
     fi
+
+    echo "$INFO Entering target=$target (type=$type):"
     
     local mk_dir
     checkget_target "clean"
 
     if [[ $? != 0 ]]; then
-	return -1
+	operation_suffix "clean" 1
+	return $?
     fi
-    
-    rm -f $mk_dir/*.complete $mk_dir/*.fail
 
+    rm -f $mk_dir/*.complete $mk_dir/*.fail
+    
+    local srcdir
+    get_source "clean"
+    
+    case $? in
+	0) ;;
+	8) operation_suffix "clean" 0
+	   return $?
+	   ;;
+	*) operation_suffix "clean" 2
+	   return $?
+	   ;;
+    esac
+    
     if [[ $type == "rebuild" ]]; then
-	make -C $mk_dir prepare-rebuild > $mk_dir/Makefile.log
+	ARC_SOURCE_DIR=$srcdir make -C $mk_dir prepare-rebuild > $mk_dir/Makefile.log
     else
-	make -C $mk_dir clean > $mk_dir/Makefile.log
+	ARC_SOURCE_DIR=$srcdir make -C $mk_dir clean > $mk_dir/Makefile.log
     fi
 
     operation_suffix "clean" $?
@@ -275,7 +329,7 @@ mkpatch() {
     fi
     
     local ARC_SOURCE_DIR
-    get_source
+    get_source "mkpatch"
 
     if [[ $? != 0 ]]; then
 	operation_suffix "mkpatch" 2
@@ -318,7 +372,7 @@ main() {
     targets="${@:2}"
 
     if [[ $2 == "all" ]]; then
-	targets=$(find ./targets/ -maxdepth 1 -type d -not -path "./targets/" -printf "%f\n")
+	targets=$(find $ARC_TARGETS -maxdepth 1 -type d -not -path $ARC_TARGETS -printf "%f\n")
     fi
 
     for target in $targets; do
