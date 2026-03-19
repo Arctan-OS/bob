@@ -67,40 +67,71 @@ ERROR="ERROR :"
 TODO="TODO  :"
 EXTRA="        "
 
-build() {
-    local target
-    local parent
+operation_suffix() {
+    # $1 = operation
+    # $2 = $?
+    echo "$INFO Leaving target=$target"
     
-    target="$1"
-    parent="$2"
+    if [[ $2 != 0 ]]; then
+	echo "$ERROR Failed to $1 target=$target"
+	if [[ $mk_dir != "" ]]; then
+	    echo "$2"> "$mk_dir/$1.fail"
+	fi
+    else
+	echo "$INFO Successful $1 for target=$target"
+	touch $mk_dir/$1.complete
+    fi
+
+    return $2
+}
+
+get_source() {
+    local version
+    version=$(make -C $mk_dir -s get-version)
+
+    ARC_SOURCE_DIR="$mk_dir/$target-$version"
     
-    if [[ $target == "" ]]; then
-	return 0
+    if [ ! -e $target-$version.tar ]; then
+	local urls
+	urls=($(make -C $mk_dir -s get-urls))
+	
+	for url in "${urls[@]}"; do
+	    echo "$EXTRA attempting to download $url"
+	    curl -o "$ARC_SOURCE_DIR.tar" -L $url
+	    if [[ $? == 0 ]]; then
+		echo "$EXTRA downloaded $url"
+	    fi
+	    echo "$EXTRA failed to download $url"
+	done
+    fi
+
+    if [ ! -d $ARC_SOURCE_DIR ] && [ -e "$ARC_SOURCE_DIR.tar" ]; then
+	tar -xf "$ARC_SOURCE_DIR.tar"
+	if [[ $? != 0 ]]; then
+	    echo "$EXTRA failed to extract $ARC_SOURCE_DIR.tar"
+	fi
+	
+	echo "$EXTRA extracted $ARC_SOURCE_DIR.tar"
+	if [ -e "$ARC_SOURCE_DIR.patch" ]; then
+	    cd $ARC_NAME-src && patch -p1 < "$ARC_SOURCE_DIR.patch"
+	    if [[ $? != 0 ]]; then
+		echo "$EXTRA failed to patch $ARC_SOURCE_DIR"
+	    fi
+	fi
+    fi
+
+    if [ ! -d $ARC_SOURCE_DIR ]; then
+	echo "$ERROR Failed to create source directory for target=$target"
+	return 1
     fi
     
-    local mk
-    mk=$(find ./targets/ -type f -wholename "./targets/$target/Makefile")
+    return 0
+}
 
-    if [[ $mk == "" ]]; then
-	echo "$ERROR Could not find Makefile for target=$target"
-	return -1
-    fi
-    
-    echo "$INFO Entering $target (parent=$parent):"
-
-    local complete
-    complete=$(find ./targets/ -type f -wholename "./targets/$target/build.complete")
-    
-    if [[ $complete != "" ]]; then
-	echo "$EXTRA target already built, skipping"
-	return 0
-    fi
-    
-    local mk_dir
-    mk_dir=$(dirname $mk)
-
+build_deps() {
     local deps
     deps=($(make -C $mk_dir -s get-deps))
+    
     echo "$EXTRA deps=${deps[@]}"
 
     for dep in "${deps[@]}"; do
@@ -112,21 +143,40 @@ build() {
 	fi
     done
 
-    echo "$INFO Building $target"
-    make -C $mk_dir build > $mk_dir/Makefile.log
-    
-    local retcode
-    retcode=$?
-    echo "$EXTRA retcode=$retcode"
-
-    if [[ $retcode == 0 ]]; then
-	touch $mk_dir/build.complete
-    fi
-    
-    return $retcode
+    return 0
 }
 
-clean() {
+checkget_target() {
+    # $1 = function
+    mk=$(find ./targets/ -type f -wholename "./targets/$target/Makefile")
+
+    if [[ $mk == "" ]]; then
+	echo "$ERROR Could not find Makefile for target=$target"
+	return 1
+    fi
+
+    if [[ $1 == "build" ]]; then
+	status=$(find ./targets/ -type f -wholename "./targets/$target/build.complete")
+	
+	if [[ $status != "" ]]; then
+	    echo "$EXTRA target already built, skipping"
+	    return 2
+	fi
+
+	status=$(find ./targets/ -type f -wholename "./targets/$target/build.fail")
+
+	if [[ $status != "" ]]; then
+	    echo "$EXTRA target already failed to build, skipping"
+	    return 3
+	fi
+    fi
+    
+    mk_dir=$(dirname $mk)
+    
+    return 0
+}
+
+build() {
     local target
     local parent
     
@@ -137,52 +187,77 @@ clean() {
 	return 0
     fi
     
-    local mk
-    mk=$(find ./targets/ -type f -wholename "./targets/$target/Makefile")
+    echo "$INFO Entering target=$target (parent=$parent):"
+    local mk_dir
+    checkget_target "build"
 
-    if [[ $mk == "" ]]; then
-	echo "$ERROR Could not find Makefile for target=$target"
-	return -1
+    case "$?" in
+	0) ;;
+	*) operation_suffix "build" $?
+	   return $?
+	   ;;
+    esac
+    
+    build_deps $mk_dir
+
+    echo "$INFO Getting source directory for target=$target"
+    local ARC_SOURCE_DIR
+    get_source $mk_dir
+
+    if [[ $? != 0 ]]; then
+	operation_suffix "build" 10
+	return $?
+    fi
+    
+    echo "$INFO Building target=$target"
+    make -C $mk_dir build > $mk_dir/Makefile.log
+
+    operation_suffix "build" $?
+    return $?
+}
+
+clean() {
+    local target
+    local type
+    
+    target="$1"
+    type="$2"
+    
+    if [[ $target == "" ]]; then
+	return 0
     fi
     
     local mk_dir
-    mk_dir=$(dirname $mk)
+    checkget_target "clean"
 
-    rm -f $mk_dir/build.complete
+    if [[ $? != 0 ]]; then
+	return -1
+    fi
+    
+    rm -f $mk_dir/*.complete $mk_dir/*.fail
 
-    if [[ $2 == "rebuild" ]]; then
+    if [[ $type == "rebuild" ]]; then
 	make -C $mk_dir prepare-rebuild > $mk_dir/Makefile.log
     else
 	make -C $mk_dir clean > $mk_dir/Makefile.log
     fi
 
+    operation_suffix "clean" $?
     return $?
 }
 
 mkpatch() {
     local target
-    local parent
-    
     target="$1"
-    parent="$2"
     
-    if [[ $target == "" ]]; then
-	return 0
-    fi
-    
-    local mk
-    mk=$(find ./targets/ -type f -wholename "./targets/$target/Makefile")
+    local mk_dir
+    checkget_target "mkpatch"
 
-    if [[ $mk == "" ]]; then
-	echo "$ERROR Could not find Makefile for target=$target"
+    if [[ $? != 0 ]]; then
+	operation_suffix "mkpatch" -1
 	return -1
     fi
     
-    echo "$INFO Entering $target (parent=$parent):"
-    
-    local mk_dir
-    mk_dir=$(dirname $mk)
-
     local version
     version=$(make -C $mk_dir -s get-version)
     echo "$EXTRA version=$version"
@@ -190,6 +265,9 @@ mkpatch() {
     # TODO: Maybe use git format-patch?
     echo "$EXTRA creating patch"
     git diff $version HEAD -p > $mk_dir/$target-$version.patch 2> $mk_dir/git.errors
+    
+    operation_suffix "mkpatch" $?
+    return $?
 }
 
 mux() {
@@ -211,11 +289,7 @@ mux() {
 	    echo "Invalid command $1"
 	    exit 1
 	    ;;
-    esac
-    
-    if [[ $? != 0 ]]; then
-	echo "$ERROR Failed to $1 target=$target"
-    fi
+    esac    
 }
 
 main() {
