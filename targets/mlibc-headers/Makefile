@@ -15,11 +15,11 @@ NINJA_FLAGS := -C build
 
 .PHONY: build
 build:
-	$(MKDIR) -p $(ARC_SOURCE_DIR)/build
+	mkdir -p $(ARC_SOURCE_DIR)/build
 
-	$(CD) $(ARC_SOURCE_DIR) && $(MESON) subprojects download
-	$(CD) $(ARC_SOURCE_DIR) && $(ARC_SET_COMPILER_ENV_FLAGS) meson setup $(MESON_FLAGS) -Dheaders_only=true
-	$(MESON) install -C $(ARC_SOURCE_DIR)/build
+	cd $(ARC_SOURCE_DIR) && meson subprojects download
+	cd $(ARC_SOURCE_DIR) && $(ARC_SET_COMPILER_ENV_FLAGS) meson setup $(MESON_FLAGS) -Dheaders_only=true
+	meson install -C $(ARC_SOURCE_DIR)/build
 
 .PHONY: clean
 clean:

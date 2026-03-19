@@ -88,16 +88,38 @@ operation_suffix() {
     return $2
 }
 
-get_source() {
-    # $1 = operation
-    
-    local version
-    version=$(make -C $mk_dir -s get-version)
+checkget_target() {
+    # $1 = function
+    mk=$(find $ARC_TARGETS -type f -wholename "$ARC_TARGETS/$target/Makefile")
 
-    if [[ $? != 0 ]]; then
-	return 6
+    if [[ $mk == "" ]]; then
+	echo "$ERROR Could not find Makefile for target=$target"
+	return 1
+    fi
+
+    if [[ $1 == "build" ]]; then
+	status=$(find $ARC_TARGETS -type f -wholename "$ARC_TARGETS/$target/build.complete")
+	
+	if [[ $status != "" ]]; then
+	    echo "$EXTRA target already built, skipping"
+	    return 2
+	fi
+
+	status=$(find $ARC_TARGETS -type f -wholename "$ARC_TARGETS/$target/build.fail")
+
+	if [[ $status != "" ]]; then
+	    echo "$EXTRA target already failed to build, skipping"
+	    return 3
+	fi
     fi
     
+    mk_dir=$(dirname $mk)
+    
+    return 0
+}
+
+get_source() {
+    # $1 = operation
     local srcdir_overwrite
     srcdir_overwrite=$(make -C $mk_dir -s get-source-dir 2>/dev/null)
 
@@ -108,20 +130,53 @@ get_source() {
     else
 	echo "$EXTRA no source directory overwrite specified"
     fi
+
+    srcdir_overwrite=$(make -C $mk_dir -s use-source-dir-of 2>/dev/null)    
+
+    if [[ $? == 0 ]]; then
+	echo "$EXTRA attempting to use source directory of target=$srcdir_overwrite"
+	
+	local tmp_mk
+	local tmp_mk_dir
+	local tmp_target
+	
+	tmp_mk=$mk
+	tmp_mk_dir=$mk_dir
+	tmp_target=$target
+
+	target=$srcdir_overwrite
+	checkget_target "get_source"
+	if [[ $? != 0 ]]; then
+	    mk=$tmp_mk
+	    mk_dir=$tmp_mk_dir
+	fi
+    fi
+
+    local version
+    version=$(make -C $mk_dir -s get-version)
+
+    if [[ $? != 0 ]]; then
+	echo "$ERROR Could not get version number"
+	return 6
+    fi
     
     local tar_basename
     local tar_path
     local tar_patch_path
     
     basename="$target-$version"
-    tar_path="$mk_dir/$basename.tar"
-    patch_path="$mk_dir/$basename.patch"
-    
-    srcdir="$mk_dir/$target-$version"
+    srcdir="$mk_dir/$basename"
+    tar_path="$srcdir.tar"
+    patch_path="$srcdir.patch"
     
     echo "$EXTRA attempting to get source directory for $basename.tar"
     
     if [ -d $srcdir ]; then
+	if [[ $tmp_mk != "" ]]; then
+	    mk=$tmp_mk
+	    mk_dir=$tmp_mk_dir
+	fi
+	
 	echo "$EXTRA found source directory: $srcdir"
 	return 0
     fi
@@ -160,7 +215,7 @@ get_source() {
 	tar -xf $tar_path -C $srcdir --strip-components=1
 	
 	if [[ $? != 0 ]]; then
-	    echo "$EXTRA failed to extract $basename.tar"
+	    echo "$ERROR Failed to extract $basename.tar"
 	    rm -rf $srcdir
 	    return 3
 	fi
@@ -169,7 +224,7 @@ get_source() {
 	if [ -e $tar_patch_path ]; then
 	    cd $srcdir && patch -f -p1 < $patch_path
 	    if [[ $? != 0 ]]; then
-		echo "$EXTRA failed to patch $basename"
+		echo "$ERROR Failed to patch $basename"
 		rm -rf $srcdir
 		return 4
 	    fi
@@ -182,6 +237,11 @@ get_source() {
     if [ ! -d $ARC_SOURCE_DIR ]; then
 	echo "$ERROR Failed to create source directory for target=$target"
 	return 1
+    fi
+
+    if [[ $tmp_mk != "" ]]; then
+	mk=$tmp_mk
+	mk_dir=$tmp_mk_dir
     fi
     
     return 0
@@ -201,36 +261,6 @@ build_deps() {
 	fi
     done
 
-    return 0
-}
-
-checkget_target() {
-    # $1 = function
-    mk=$(find $ARC_TARGETS -type f -wholename "$ARC_TARGETS/$target/Makefile")
-
-    if [[ $mk == "" ]]; then
-	echo "$ERROR Could not find Makefile for target=$target"
-	return 1
-    fi
-
-    if [[ $1 == "build" ]]; then
-	status=$(find $ARC_TARGETS -type f -wholename "$ARC_TARGETS/$target/build.complete")
-	
-	if [[ $status != "" ]]; then
-	    echo "$EXTRA target already built, skipping"
-	    return 2
-	fi
-
-	status=$(find $ARC_TARGETS -type f -wholename "$ARC_TARGETS/$target/build.fail")
-
-	if [[ $status != "" ]]; then
-	    echo "$EXTRA target already failed to build, skipping"
-	    return 3
-	fi
-    fi
-    
-    mk_dir=$(dirname $mk)
-    
     return 0
 }
 
@@ -261,11 +291,13 @@ build() {
     echo "$INFO Getting source directory for target=$target"
     local srcdir
     get_source "build"
-
+    
     if [[ $? != 0 ]]; then
 	operation_suffix "build" 10
 	return $?
     fi
+
+    echo "srcdir=$srcdir"
     
     echo "$INFO Building target=$target"
     ARC_SOURCE_DIR=$srcdir make -C $mk_dir build > $mk_dir/Makefile.log
