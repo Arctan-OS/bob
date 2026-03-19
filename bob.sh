@@ -100,17 +100,11 @@ export ARC_TARGETS="$ARC_ROOT/targets"
 ARC_BUILDS="$ARC_ROOT/builds"
 ARC_CLEAN_SRC="$ARC_ROOT/src.clean"
 
-if [ ! -d $ARC_TARGETS ]; then
-    mkdir -p $ARC_TARGETS
-fi
+[ ! -d $ARC_TARGETS   ] && mkdir -p $ARC_TARGETS
+[ ! -d $ARC_BUILDS    ] && mkdir -p $ARC_BUILDS
+[ ! -d $ARC_CLEAN_SRC ] && mkdir -p $ARC_CLEAN_SRC
 
-if [ ! -d $ARC_BUILDS ]; then
-    mkdir -p $ARC_BUILDS
-fi
-
-if [ ! -d $ARC_BUILDS ]; then
-    mkdir -p $ARC_CLEAN_SRC
-fi
+[[ $BOB_DEBUG == "yes" ]] && set -x
 
 operation_suffix() {
     # $1 = operation
@@ -294,7 +288,7 @@ iget_source() {
 get_source() {
     local tmp_mk
     tmp_mk=$mk
-    get_source $@
+    iget_source $@
     mk=$tmp_mk
 }
 
