@@ -89,35 +89,51 @@ get_source() {
     local version
     version=$(make -C $mk_dir -s get-version)
 
+    tar_basename=$target-$version
     ARC_SOURCE_DIR="$mk_dir/$target-$version"
+    tar_path="$ARC_SOURCE_DIR.tar"
+    tar_patch_path="$ARC_SOURCE_DIR.tar"
     
-    if [ ! -e $target-$version.tar ]; then
+    echo "$EXTRA attempting to get source directory for  $tar_basename.tar"
+    
+    if [ -d $ARC_SOURCE_DIR ]; then
+	echo "$EXTRA found source directory: $ARC_SOURCE_DIR"
+	return 0
+    fi
+    
+    if [ ! -e $tar_path ]; then
 	local urls
 	urls=($(make -C $mk_dir -s get-urls))
 	
 	for url in "${urls[@]}"; do
 	    echo "$EXTRA attempting to download $url"
-	    curl -o "$ARC_SOURCE_DIR.tar" -L $url
+	    curl -o $tar_path -L $url
 	    if [[ $? == 0 ]]; then
 		echo "$EXTRA downloaded $url"
+		break
 	    fi
 	    echo "$EXTRA failed to download $url"
 	done
     fi
-
-    if [ ! -d $ARC_SOURCE_DIR ] && [ -e "$ARC_SOURCE_DIR.tar" ]; then
-	tar -xf "$ARC_SOURCE_DIR.tar"
+    
+    if [ -e $tar_path ]; then
+	tar -xf $tar_path
 	if [[ $? != 0 ]]; then
 	    echo "$EXTRA failed to extract $ARC_SOURCE_DIR.tar"
+	    return 3
 	fi
 	
 	echo "$EXTRA extracted $ARC_SOURCE_DIR.tar"
-	if [ -e "$ARC_SOURCE_DIR.patch" ]; then
-	    cd $ARC_NAME-src && patch -p1 < "$ARC_SOURCE_DIR.patch"
+	if [ -e $tar_patch_path ]; then
+	    cd $ARC_SOURCE_DIR && patch -p1 < $tar_patch_path
 	    if [[ $? != 0 ]]; then
 		echo "$EXTRA failed to patch $ARC_SOURCE_DIR"
+		return 4
 	    fi
 	fi
+    else
+	echo "$ERROR Could not find source archive for target=$target"
+	return 2
     fi
 
     if [ ! -d $ARC_SOURCE_DIR ]; then
@@ -198,11 +214,11 @@ build() {
 	   ;;
     esac
     
-    build_deps $mk_dir
+    build_deps
 
     echo "$INFO Getting source directory for target=$target"
     local ARC_SOURCE_DIR
-    get_source $mk_dir
+    get_source
 
     if [[ $? != 0 ]]; then
 	operation_suffix "build" 10
@@ -254,17 +270,22 @@ mkpatch() {
     checkget_target "mkpatch"
 
     if [[ $? != 0 ]]; then
-	operation_suffix "mkpatch" -1
-	return -1
+	operation_suffix "mkpatch" 1
+	return $?
     fi
     
-    local version
-    version=$(make -C $mk_dir -s get-version)
-    echo "$EXTRA version=$version"
+    local ARC_SOURCE_DIR
+    get_source
 
+    if [[ $? != 0 ]]; then
+	operation_suffix "mkpatch" 2
+	return $?
+    fi
+    
     # TODO: Maybe use git format-patch?
     echo "$EXTRA creating patch"
-    git diff $version HEAD -p > $mk_dir/$target-$version.patch 2> $mk_dir/git.errors
+    cd $ARC_SOURCE_DIR && \
+	git diff $version HEAD -p > ../$target-$version.patch 2> ../git.errors
     
     operation_suffix "mkpatch" $?
     return $?
