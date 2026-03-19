@@ -153,7 +153,11 @@ get_source() {
     
     if [ -e $tar_path ]; then
 	mkdir $srcdir
-        tar -xf $tar_path -C $srcdir
+	# TODO: Most likely whatever service generated the tar
+	#       will have included the parent directory so this
+	#       is fine, but what if it didn't? How can this case 
+	#       be detected and corrected for?
+	tar -xf $tar_path -C $srcdir --strip-components=1
 	
 	if [[ $? != 0 ]]; then
 	    echo "$EXTRA failed to extract $basename.tar"
@@ -163,7 +167,7 @@ get_source() {
 	
 	echo "$EXTRA extracted $basename.tar"
 	if [ -e $tar_patch_path ]; then
-	    cd $srcdir && patch -p1 < $patch_path
+	    cd $srcdir && patch -f -p1 < $patch_path
 	    if [[ $? != 0 ]]; then
 		echo "$EXTRA failed to patch $basename"
 		rm -rf $srcdir
