@@ -119,8 +119,8 @@ ERROR="ERROR :"
 TODO="TODO  :"
 EXTRA="        "
 
-export ARC_ROOT="$PWD"
-export ARC_TARGETS="$ARC_ROOT/targets"
+[[ $ARC_ROOT    == "" ]] && export ARC_ROOT="$PWD"
+[[ $ARC_TARGETS == "" ]] && export ARC_TARGETS="$ARC_ROOT/targets"
 
 ARC_BUILDS="$ARC_ROOT/.autogen/build"
 ARC_CLEAN_SRC="$ARC_ROOT/.autogen/clean"
