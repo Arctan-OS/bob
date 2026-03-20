@@ -36,14 +36,6 @@ prepare-rebuild:
 get-deps:
 	@echo $(DEPS)
 
-.PHONY: get-version
-get-version:
-	@echo $(VERSION)
-
-.PHONY: get-urls
-get-urls:
-	@echo $(URLS)
-
 .PHONY: use-source-dir-of
 use-source-dir-of:
 	@echo "mlibc-headers"

@@ -23,7 +23,7 @@ build:
 
 .PHONY: clean
 clean:
-	rm -rf $(ARC_SOURCE_DIR)
+	@echo "Definitely cleaning"
 
 .PHONY: get-deps
 get-deps:

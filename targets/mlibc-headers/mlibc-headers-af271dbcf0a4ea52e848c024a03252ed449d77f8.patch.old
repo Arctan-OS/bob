@@ -1,7 +1,7 @@
-diff --git a/../../../.autogen/clean/mlibc-headers-af271dbcf0a4ea52e848c024a03252ed449d77f8/meson.build b/./meson.build
-index f0cce79..9cbd763 100644
---- a/../../../.autogen/clean/mlibc-headers-af271dbcf0a4ea52e848c024a03252ed449d77f8/meson.build
-+++ b/./meson.build
+diff --git a/meson.build b/meson.build
+index f0cce792..9cbd7632 100644
+--- a/meson.build
++++ b/meson.build
 @@ -286,6 +286,14 @@ elif host_machine.system() == 'menix'
  	internal_conf.set10('MLIBC_MMAP_ALLOCATE_DSO', true)
  	internal_conf.set10('MLIBC_MAP_FILE_WINDOWS', true)
@@ -17,11 +17,11 @@ index f0cce79..9cbd763 100644
  # ANCHOR: demo-sysdeps
  elif host_machine.system() == 'demo'
  	subdir('sysdeps/demo')
-diff --git a/./sysdeps/arctan/crt-x86_64/crt0.S b/./sysdeps/arctan/crt-x86_64/crt0.S
+diff --git a/sysdeps/arctan/crt-x86_64/crt0.S b/sysdeps/arctan/crt-x86_64/crt0.S
 new file mode 100644
-index 0000000..d0e8213
+index 00000000..d0e82138
 --- /dev/null
-+++ b/./sysdeps/arctan/crt-x86_64/crt0.S
++++ b/sysdeps/arctan/crt-x86_64/crt0.S
 @@ -0,0 +1,8 @@
 +.section .text
 +.global _start
@@ -31,11 +31,11 @@ index 0000000..d0e8213
 +	call __mlibc_entry
 +.section .note.GNU-stack,"",%progbits
 +
-diff --git a/./sysdeps/arctan/crt-x86_64/crti.S b/./sysdeps/arctan/crt-x86_64/crti.S
+diff --git a/sysdeps/arctan/crt-x86_64/crti.S b/sysdeps/arctan/crt-x86_64/crti.S
 new file mode 100644
-index 0000000..911b078
+index 00000000..911b078d
 --- /dev/null
-+++ b/./sysdeps/arctan/crt-x86_64/crti.S
++++ b/sysdeps/arctan/crt-x86_64/crti.S
 @@ -0,0 +1,11 @@
 +.section .init
 +.global _init
@@ -48,11 +48,11 @@ index 0000000..911b078
 +	push %rax
 +.section .note.GNU-stack,"",%progbits
 +
-diff --git a/./sysdeps/arctan/crt-x86_64/crtn.S b/./sysdeps/arctan/crt-x86_64/crtn.S
+diff --git a/sysdeps/arctan/crt-x86_64/crtn.S b/sysdeps/arctan/crt-x86_64/crtn.S
 new file mode 100644
-index 0000000..0187e50
+index 00000000..0187e50f
 --- /dev/null
-+++ b/./sysdeps/arctan/crt-x86_64/crtn.S
++++ b/sysdeps/arctan/crt-x86_64/crtn.S
 @@ -0,0 +1,9 @@
 +.section .init
 +	pop %rax
@@ -63,11 +63,11 @@ index 0000000..0187e50
 +	ret
 +.section .note.GNU-stack,"",%progbits
 +
-diff --git a/./sysdeps/arctan/generic/entry.cpp b/./sysdeps/arctan/generic/entry.cpp
+diff --git a/sysdeps/arctan/generic/entry.cpp b/sysdeps/arctan/generic/entry.cpp
 new file mode 100644
-index 0000000..cb9f179
+index 00000000..cb9f1792
 --- /dev/null
-+++ b/./sysdeps/arctan/generic/entry.cpp
++++ b/sysdeps/arctan/generic/entry.cpp
 @@ -0,0 +1,15 @@
 +
 +#include <stdint.h>
@@ -84,11 +84,11 @@ index 0000000..cb9f179
 +	auto result = main_fn(mlibc::entry_stack.argc, mlibc::entry_stack.argv, environ);
 +	exit(result);
 +}
-diff --git a/./sysdeps/arctan/generic/generic.cpp b/./sysdeps/arctan/generic/generic.cpp
+diff --git a/sysdeps/arctan/generic/generic.cpp b/sysdeps/arctan/generic/generic.cpp
 new file mode 100644
-index 0000000..e3584ad
+index 00000000..e3584adb
 --- /dev/null
-+++ b/./sysdeps/arctan/generic/generic.cpp
++++ b/sysdeps/arctan/generic/generic.cpp
 @@ -0,0 +1,112 @@
 +#include <stdint.h>
 +#include <time.h>
@@ -202,19 +202,19 @@ index 0000000..e3584ad
 +		return sys_vm_unmap(address, size);
 +	}
 +} // namespace mlibc
-diff --git a/./sysdeps/arctan/include/abi-bits b/./sysdeps/arctan/include/abi-bits
+diff --git a/sysdeps/arctan/include/abi-bits b/sysdeps/arctan/include/abi-bits
 new file mode 120000
-index 0000000..d0f56f3
+index 00000000..d0f56f3f
 --- /dev/null
-+++ b/./sysdeps/arctan/include/abi-bits
++++ b/sysdeps/arctan/include/abi-bits
 @@ -0,0 +1 @@
 +../../../abis/linux/
 \ No newline at end of file
-diff --git a/./sysdeps/arctan/meson.build b/./sysdeps/arctan/meson.build
+diff --git a/sysdeps/arctan/meson.build b/sysdeps/arctan/meson.build
 new file mode 100644
-index 0000000..86be771
+index 00000000..b87cc73c
 --- /dev/null
-+++ b/./sysdeps/arctan/meson.build
++++ b/sysdeps/arctan/meson.build
 @@ -0,0 +1,112 @@
 +sysdep_supported_options = {
 +	'posix': true,
@@ -328,11 +328,3 @@ index 0000000..86be771
 +	)
 +endif
 +
-diff --git a/./testing_dir_adding/testing_fil_adding b/./testing_dir_adding/testing_fil_adding
-new file mode 100644
-index 0000000..95d09f2
---- /dev/null
-+++ b/./testing_dir_adding/testing_fil_adding
-@@ -0,0 +1 @@
-+hello world
-\ No newline at end of file

@@ -463,8 +463,12 @@ mkpatch() {
     echo "$EXTRA creating patch"
     local clean_rel_path="$(realpath --relative-to=$srcdir $ARC_CLEAN_SRC/$basename)"
     cd $srcdir && git diff --no-index $clean_rel_path . -p > $patch_path 2> $mk/git.errors
+
+    case $? in
+	1) operation_suffix "mkpatch" 0  ;;
+	*) operation_suffix "mkpatch" $? ;;
+    esac
     
-    operation_suffix "mkpatch" $?
     return $?
 }
 

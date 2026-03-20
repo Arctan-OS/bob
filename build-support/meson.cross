@@ -1,0 +1,11 @@
+[binaries]
+c = 'x86_64-pc-arctan-mlibc-gcc'
+cpp = 'x86_64-pc-arctan-mlibc-g++'
+ar = 'x86_64-pc-arctan-mlibc-ar'
+strip = 'x86_64-pc-arctan-mlibc-strip'
+
+[host_machine]
+system = 'arctan'
+cpu_family = 'x86_64'
+cpu = 'x86_64'
+endian = 'little'
