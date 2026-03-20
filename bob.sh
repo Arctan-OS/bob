@@ -30,7 +30,7 @@ autogen_usage() {
          The .autogen directory is created by bob.sh to maintain various internal directories that
          must not be modified by the user.
 
-# .autogen/src.clean
+# .autogen/clean
          Copies of each target's clean source code - prior to patching and any modification, as
          extracted from the downloaded archive.
 
@@ -122,8 +122,8 @@ EXTRA="        "
 export ARC_ROOT="$PWD"
 export ARC_TARGETS="$ARC_ROOT/targets"
 
-ARC_BUILDS="$ARC_ROOT/.autogen/builds"
-ARC_CLEAN_SRC="$ARC_ROOT/.autogen/src.clean"
+ARC_BUILDS="$ARC_ROOT/.autogen/build"
+ARC_CLEAN_SRC="$ARC_ROOT/.autogen/clean"
 ARC_AUTOGEN_USAGE="$ARC_ROOT/.autogen/README.md"
 
 [ ! -d $ARC_TARGETS       ] && mkdir -p $ARC_TARGETS
@@ -232,13 +232,6 @@ download_source() {
     done
 }
 
-replace_prefix() {
-    # $1=to
-    # $2=from
-    # $3=what
-    echo "$1${$3#$2}"
-}
-
 patch_source() {
     if [ -e $patch_path ]; then
 	cd $srcdir && patch -f -p1 < $patch_path
@@ -249,14 +242,18 @@ patch_source() {
 	    return 1
 	fi
     fi
-    
+
     return 0
 }
 
+create_srcbuild() {
+    echo "$EXTRA linking files in targets/$targets/$basename to .autogen/build/$basename"
+    cd $srcdir && find -type f -print0 | xargs -0 -I {} bash -c 'mkdir -p $3/$(dirname "$1") && ln -s "$2"/"{}" "$3"/"{}"' -- {} "$srcdir" "$srcbuild"
+    echo "$EXTRA copying symlinks in targets/$targets/$basename to .autogen/build/$basename"
+    cd $srcdir && find -type l -print0 | xargs -0 -I {} bash -c 'mkdir -p $3/$(dirname "$1") && cp -P "$2"/"{}" "$3"/"{}"' -- {} "$srcdir" "$srcbuild" 
+}
+
 iget_source() {
-    local srcclean="$ARC_CLEAN_SRC/$basename"
-    local srcbuild="$ARC_BUILDS/$basename"
-    
     # $1 = operation
     overwrite_source 
 
@@ -271,10 +268,15 @@ iget_source() {
     srcdir="$mk/$basename"
     tar_path="$srcdir.tar"
     patch_path="$srcdir.patch"
+
+    srcclean="$ARC_CLEAN_SRC/$basename"
+    srcbuild="$ARC_BUILDS/$basename"
     
     echo "$EXTRA attempting to get source directory for $basename.tar"
     
     if [ -d $srcdir ]; then
+	[[ ! -d $srcbuild ]] && create_srcbuild
+	
 	echo "$EXTRA found source directory: $srcdir"
 	return 0
     fi
@@ -324,12 +326,13 @@ iget_source() {
 	return 1
     fi
 
-   
+    create_srcbuild
     
     return 0
 }
 
 get_source() {
+    # $1 = operation
     local tmp_mk=$mk
     iget_source $@
     mk=$tmp_mk
@@ -374,6 +377,8 @@ build() {
 
     echo "$INFO Getting source directory for target=$target"
     local srcdir
+    local srcclean
+    local srcbuild
     get_source "build"
     
     if [[ $? != 0 ]]; then
@@ -382,7 +387,7 @@ build() {
     fi
     
     echo "$INFO Building target=$target"
-    ARC_SOURCE_DIR=$srcdir make -C $mk build > $mk/Makefile.log
+    ARC_SOURCE_DIR=$srcbuild make -C $mk build > $mk/Makefile.log
 
     operation_suffix "build" $?
     return $?
@@ -409,6 +414,8 @@ clean() {
     rm -f $mk/*.complete $mk/*.fail
     
     local srcdir
+    local srcclean
+    local srcbuild
     get_source "clean"
     
     case $? in
@@ -422,9 +429,11 @@ clean() {
     esac
     
     if [[ $type == "rebuild" ]]; then
-	ARC_SOURCE_DIR=$srcdir make -C $mk prepare-rebuild > $mk/Makefile.log
+	ARC_SOURCE_DIR=$srcbuild make -C $mk prepare-rebuild > $mk/Makefile.log
     else
-	ARC_SOURCE_DIR=$srcdir make -C $mk clean > $mk/Makefile.log
+	rm -rf $srcdir
+	rm -rf $srcclean
+	rm -rf $srcbuild
     fi
 
     operation_suffix "clean" $?
@@ -452,7 +461,8 @@ mkpatch() {
     
     # TODO: Maybe use git format-patch?
     echo "$EXTRA creating patch"
-    git diff --no-index "$ARC_CLEAN_SRC/$basename" $srcdir -p > $patch_path 2> $mk/git.errors
+    local clean_rel_path="$(realpath --relative-to=$srcdir $ARC_CLEAN_SRC/$basename)"
+    cd $srcdir && git diff --no-index $clean_rel_path . -p > $patch_path 2> $mk/git.errors
     
     operation_suffix "mkpatch" $?
     return $?
