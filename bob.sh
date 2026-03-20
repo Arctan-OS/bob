@@ -23,8 +23,30 @@
 # TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-USAGE=$(cat <<"EOF"
-# Usage
+# TODO: Improve this explanation
+autogen_usage() {
+    AUTOGEN_USAGE=$(cat <<"EOF"
+# .autogen
+         The .autogen directory is created by bob.sh to maintain various internal directories that
+         must not be modified by the user.
+
+# .autogen/src.clean
+         Copies of each target's clean source code - prior to patching and any modification, as
+         extracted from the downloaded archive.
+
+# .autogen/build
+         Symbolic links to each target's source code files prior to building. Symbolic links are
+         copied out into the same relative posistion they are in originally. The source of the
+         linking is located in targets/$target/$target-$version/.
+   
+EOF
+		 )
+    echo "$AUTOGEN_USAGE"
+}
+
+print_usage() {
+    USAGE=$(cat <<"EOF"
+# Usage		
          ```shell
          $ MAKEFILE_PARAM0=... ./bob.sh [function] [targets] 
          ```
@@ -78,15 +100,18 @@ USAGE=$(cat <<"EOF"
 
 # Target Makefiles
          See targets/toolA or toolB to see the base implementation of a valid Makefile.
+
+# Enabling additional Debugging
+         ```shell
+         $ BOB_DEBUG=yes ./bob.sh [args]
+         ```
 EOF
 	
 )
-
-if [[ $# < 1 ]]; then
-    echo "$ERROR Need at leat one argument (all, rebuild, clean)"
     echo "$USAGE"
+    autogen_usage
     exit 1
-fi
+}
 
 INFO="INFO  :"
 WARN="WARN  :"
@@ -97,14 +122,23 @@ EXTRA="        "
 export ARC_ROOT="$PWD"
 export ARC_TARGETS="$ARC_ROOT/targets"
 
-ARC_BUILDS="$ARC_ROOT/builds"
-ARC_CLEAN_SRC="$ARC_ROOT/src.clean"
+ARC_BUILDS="$ARC_ROOT/.autogen/builds"
+ARC_CLEAN_SRC="$ARC_ROOT/.autogen/src.clean"
+ARC_AUTOGEN_USAGE="$ARC_ROOT/.autogen/README.md"
 
-[ ! -d $ARC_TARGETS   ] && mkdir -p $ARC_TARGETS
-[ ! -d $ARC_BUILDS    ] && mkdir -p $ARC_BUILDS
-[ ! -d $ARC_CLEAN_SRC ] && mkdir -p $ARC_CLEAN_SRC
+[ ! -d $ARC_TARGETS       ] && mkdir -p $ARC_TARGETS
+[ ! -d $ARC_BUILDS        ] && mkdir -p $ARC_BUILDS
+[ ! -d $ARC_CLEAN_SRC     ] && mkdir -p $ARC_CLEAN_SRC && echo "made $ARC_CLEAN_SRC"
+[ ! -e $ARC_AUTOGEN_USAGE ] && autogen_usage > $ARC_AUTOGEN_USAGE
 
 [[ $BOB_DEBUG == "yes" ]] && set -x
+
+BOB_VERSION="0.1"
+
+if [[ $# < 1 ]]; then
+    echo "$ERROR Need at leat one argument (all, rebuild, clean)"
+    print_usage
+fi
 
 operation_suffix() {
     # $1 = operation
@@ -154,8 +188,7 @@ checkget_target() {
 }
 
 overwrite_source() {
-    local srcdir_overwrite
-    srcdir_overwrite=$(make -C $mk -s get-source-dir 2>/dev/null)
+    local srcdir_overwrite=$(make -C $mk -s get-source-dir 2>/dev/null)
 
     if [[ $? == 0 ]]; then
 	echo "$EXTRA overwrote source directory to $srcdir_overwrite"
@@ -199,8 +232,14 @@ download_source() {
     done
 }
 
+replace_prefix() {
+    # $1=to
+    # $2=from
+    # $3=what
+    echo "$1${$3#$2}"
+}
+
 patch_source() {
-    echo "$EXTRA copying clean source src.clean/$basename.tar"
     if [ -e $patch_path ]; then
 	cd $srcdir && patch -f -p1 < $patch_path
 	
@@ -210,11 +249,14 @@ patch_source() {
 	    return 1
 	fi
     fi
-
+    
     return 0
 }
 
 iget_source() {
+    local srcclean="$ARC_CLEAN_SRC/$basename"
+    local srcbuild="$ARC_BUILDS/$basename"
+    
     # $1 = operation
     overwrite_source 
 
@@ -246,10 +288,9 @@ iget_source() {
 	download_source
 	[[ $? != 0 ]] && return 7
     fi
-
-    if [ -d "$ARC_CLEAN_SRC/$basename" ]; then
-	cp -r $srcdir "$ARC_CLEAN_SRC/$basename"
-	
+    
+    if [ -d $srcclean ]; then
+	cp -r $srcclean $mk
 	patch_source
 	[[ $? != 0 ]] && return 9
     elif [ -e $tar_path ]; then
@@ -266,10 +307,11 @@ iget_source() {
 	    return 3
 	fi
 
-	cp -r $srcdir "$ARC_CLEAN_SRC/$basename"
-	
 	echo "$EXTRA extracted $basename.tar"
 	
+	echo "$EXTRA copying clean source .autogen/src.clean/$basename.tar"
+	cp -r $srcdir $srcclean
+		
 	patch_source
 	[[ $? != 0 ]] && return 4
     else
@@ -281,20 +323,20 @@ iget_source() {
 	echo "$ERROR Failed to create source directory for target=$target"
 	return 1
     fi
+
+   
     
     return 0
 }
 
 get_source() {
-    local tmp_mk
-    tmp_mk=$mk
+    local tmp_mk=$mk
     iget_source $@
     mk=$tmp_mk
 }
 
 build_deps() {
-    local deps
-    deps=($(make -C $mk -s get-deps))
+    local deps=($(make -C $mk -s get-deps))
     
     echo "$EXTRA deps=${deps[@]}"
 
@@ -310,11 +352,8 @@ build_deps() {
 }
 
 build() {
-    local target
-    local parent
-    
-    target="$1"
-    parent="$2"
+    local target="$1"
+    local parent="$2"
     
     if [[ $target == "" ]]; then
 	return 0
@@ -341,8 +380,6 @@ build() {
 	operation_suffix "build" 10
 	return $?
     fi
-
-    echo "srcdir=$srcdir"
     
     echo "$INFO Building target=$target"
     ARC_SOURCE_DIR=$srcdir make -C $mk build > $mk/Makefile.log
@@ -352,11 +389,8 @@ build() {
 }
 
 clean() {
-    local target
-    local type
-    
-    target="$1"
-    type="$2"
+    local target="$1"
+    local type="$2"
     
     if [[ $target == "" ]]; then
 	return 0
@@ -397,12 +431,8 @@ clean() {
     return $?
 }
 
-# ERROR: This does not work because tar archives do not
-#        include the .git folder. Maintain clean source
-#        directory?
 mkpatch() {
-    local target
-    target="$1"
+    local target="$1"
     
     local mk
     checkget_target "mkpatch"
@@ -422,7 +452,7 @@ mkpatch() {
     
     # TODO: Maybe use git format-patch?
     echo "$EXTRA creating patch"
-    git --git-dir=$srcdir/.git diff $version HEAD -p > $patch_path 2> $mk/git.errors
+    git diff --no-index "$ARC_CLEAN_SRC/$basename" $srcdir -p > $patch_path 2> $mk/git.errors
     
     operation_suffix "mkpatch" $?
     return $?
@@ -443,9 +473,13 @@ cmdmux() {
 	"mkpatch")
 	    mkpatch $target
 	    ;;
+	"version")
+	    echo "version=bob.sh-$BOB_VERSION"
+	    exit 0
+	    ;;
 	*)
 	    echo "Invalid command $1"
-	    exit 1
+	    print_usage
 	    ;;
     esac    
 }
@@ -454,10 +488,11 @@ main() {
     local targets
     targets="${@:2}"
 
-    if [[ $2 == "all" ]]; then
+    [[ $2 == "all" ]] && \
 	targets=$(find $ARC_TARGETS -maxdepth 1 -type d -not -path $ARC_TARGETS -printf "%f\n")
-    fi
 
+    [[ $# == 2 ]] && cmdmux $@
+    
     for target in $targets; do
 	cmdmux $@
     done
