@@ -438,6 +438,7 @@ clean() {
     if [[ $type == "rebuild" ]]; then
 	ARC_SOURCE_DIR=$srcbuild make -C $mk prepare-rebuild > $mk/Makefile.log
     else
+	ARC_SOURCE_DIR=$srcbuild make -C $mk clean > $mk/Makefile.log
 	rm -rf $srcdir
 	rm -rf $srcclean
 	rm -rf $srcbuild
