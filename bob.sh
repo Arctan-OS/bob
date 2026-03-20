@@ -375,6 +375,7 @@ build() {
 	0) ;;
 	2) operation_suffix "build" 0
 	   return $?
+	   ;;
 	*) operation_suffix "build" $?
 	   return $?
 	   ;;
