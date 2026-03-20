@@ -188,7 +188,6 @@ checkget_target() {
 }
 
 overwrite_source() {
-    echo "mk=$mk"
     local srcdir_overwrite
     srcdir_overwrite=$(make -C $mk -s get-source-dir 2>/dev/null)
     
@@ -204,13 +203,10 @@ overwrite_source() {
 
     if [[ $? == 0 ]]; then
 	echo "$EXTRA attempting to use source directory of target=$srcdir_overwrite"
-       
-	local tmp_target
-	tmp_target=$target
 
 	target=$srcdir_overwrite
 	checkget_target "get_source"
-	[[ $? != 0 ]] && mk=$tmp_mk
+	[[ $? != 0 ]] && mk=$tmp_mk && target=$tmp_target
     fi
 }
 
@@ -341,7 +337,9 @@ iget_source() {
 get_source() {
     # $1 = operation
     local tmp_mk=$mk
+    local tmp_target=$target
     iget_source $@
+    target=$tmp_target
     mk=$tmp_mk
 }
 
@@ -375,6 +373,8 @@ build() {
 
     case "$?" in
 	0) ;;
+	2) operation_suffix "build" 0
+	   return $?
 	*) operation_suffix "build" $?
 	   return $?
 	   ;;
