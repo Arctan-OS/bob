@@ -188,8 +188,10 @@ checkget_target() {
 }
 
 overwrite_source() {
-    local srcdir_overwrite=$(make -C $mk -s get-source-dir 2>/dev/null)
-
+    echo "mk=$mk"
+    local srcdir_overwrite
+    srcdir_overwrite=$(make -C $mk -s get-source-dir 2>/dev/null)
+    
     if [[ $? == 0 ]]; then
 	echo "$EXTRA overwrote source directory to $srcdir_overwrite"
 	srcdir=$srcdir_overwrite
@@ -247,10 +249,15 @@ patch_source() {
 }
 
 create_srcbuild() {
-    echo "$EXTRA linking files in targets/$targets/$basename to .autogen/build/$basename"
-    cd $srcdir && find -type f -print0 | xargs -0 -I {} bash -c 'mkdir -p $3/$(dirname "$1") && ln -s "$2"/"{}" "$3"/"{}"' -- {} "$srcdir" "$srcbuild"
-    echo "$EXTRA copying symlinks in targets/$targets/$basename to .autogen/build/$basename"
-    cd $srcdir && find -type l -print0 | xargs -0 -I {} bash -c 'mkdir -p $3/$(dirname "$1") && cp -P "$2"/"{}" "$3"/"{}"' -- {} "$srcdir" "$srcbuild" 
+    # TODO: This is a nice approach in theory, but it is extremely slow.
+    #       can it be temporally improved in anyway?
+    # echo "$EXTRA linking files in targets/$targets/$basename to .autogen/build/$basename"
+    # cd $srcdir && find -type f -print0 | xargs -0 -I {} bash -c 'mkdir -p $3/$(dirname "$1") && ln -s "$2"/"{}" "$3"/"{}"' -- {} "$srcdir" "$srcbuild"
+    # echo "$EXTRA copying symlinks in targets/$targets/$basename to .autogen/build/$basename"
+    # cd $srcdir && find -type l -print0 | xargs -0 -I {} bash -c 'mkdir -p $3/$(dirname "$1") && cp -P "$2"/"{}" "$3"/"{}"' -- {} "$srcdir" "$srcbuild"
+
+    echo "$EXTRA copying source to .autogen/build/$basename"
+    cp -r $srcdir $srcbuild
 }
 
 iget_source() {
@@ -311,7 +318,7 @@ iget_source() {
 
 	echo "$EXTRA extracted $basename.tar"
 	
-	echo "$EXTRA copying clean source .autogen/src.clean/$basename.tar"
+	echo "$EXTRA copying clean source to .autogen/src.clean/$basename"
 	cp -r $srcdir $srcclean
 		
 	patch_source
