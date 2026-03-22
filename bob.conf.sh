@@ -1,6 +1,3 @@
-export MY_VAR="thing.thing"
-
-
 export ARC_BUILD_SUPPORT="$PWD/build-support"
 export ARC_HOST_PREFIX="$PWD/sysroot/usr"
 
