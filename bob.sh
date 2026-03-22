@@ -234,7 +234,7 @@ patch_source() {
     if [ -e $patch_path ]; then
 	echo "$EXTRA patching $srcdir with $patch_path"
 	cd $srcdir && patch -f -p1 < $patch_path
-	
+
 	if [[ $? != 0 ]]; then
 	    echo "$ERROR Failed to patch $basename"
 	    rm -rf $srcdir
@@ -257,7 +257,7 @@ create_srcbuild() {
 
     mkdir -p $srcbuild
     echo "$EXTRA copying $srcdir to $srcbuild"
-    cp -rf $srcdir/. $srcbuild
+    cp -Pprf $srcdir/. $srcbuild
 }
 
 iget_source() {
@@ -300,7 +300,7 @@ iget_source() {
     
     if [ -d $srcclean ]; then
 	echo "$EXTRA $srcclean exists, copying it to $mk"
-	cp -rf $srcclean $mk
+	cp -Pprf $srcclean $mk
 	patch_source
 	[[ $? != 0 ]] && return 9
     elif [ -e $tar_path ]; then
@@ -320,7 +320,7 @@ iget_source() {
 	echo "$EXTRA extracted $basename.tar"
 	
 	echo "$EXTRA copying extracted source to $srcclean"
-	cp -rf $srcdir $srcclean
+	cp -Pprf $srcdir $srcclean
 		
 	patch_source
 	[[ $? != 0 ]] && return 4
@@ -405,8 +405,10 @@ build() {
     fi
     
     echo "$INFO Building target=$target"
-    ARC_SOURCE_DIR=$srcbuild make -C $mk build > $mk/Makefile.log
-
+    
+    cd $mk
+    ARC_SOURCE_DIR=$srcbuild make build
+    
     operation_suffix "build" $?
     return $?
 }
@@ -445,16 +447,18 @@ clean() {
 	   return $?
 	   ;;
     esac
-    
+
+    cd $mk
     if [[ $type == "rebuild" ]]; then
-	ARC_SOURCE_DIR=$srcbuild make -C $mk prepare-rebuild > $mk/Makefile.log
+	ARC_SOURCE_DIR=$srcbuild make prepare-rebuild
     else
-	ARC_SOURCE_DIR=$srcbuild make -C $mk clean > $mk/Makefile.log
+	ARC_SOURCE_DIR=$srcbuild make clean
 	rm -rf $srcdir
 	rm -rf $srcclean
 	rm -rf $srcbuild
     fi
 
+    
     operation_suffix "clean" $?
     return $?
 }
@@ -477,12 +481,12 @@ mkpatch() {
 	operation_suffix "mkpatch" 2
 	return $?
     fi
-    
+
     # TODO: Maybe use git format-patch?
     echo "$EXTRA creating patch"
     local clean_rel_path="$(realpath --relative-to=$srcdir $ARC_CLEAN_SRC/$basename)"
-    cd $srcdir && git diff --no-index $clean_rel_path . -p > $patch_path 2> $mk/git.errors
-
+    cd $srcdir && git diff --no-index $clean_rel_path . -p > $patch_path
+    
     case $? in
 	1) operation_suffix "mkpatch" 0  ;;
 	*) operation_suffix "mkpatch" $? ;;
@@ -492,6 +496,8 @@ mkpatch() {
 }
 
 cmdmux() {
+    local tmp_PWD=$PWD
+    
     case $1 in
 	"build")	
 	    build $target
@@ -514,7 +520,9 @@ cmdmux() {
 	    echo "Invalid command $1"
 	    print_usage
 	    ;;
-    esac    
+    esac
+
+    PWD=$tmp_PWD
 }
 
 main() {
