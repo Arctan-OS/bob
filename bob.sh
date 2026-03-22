@@ -232,6 +232,7 @@ download_source() {
 
 patch_source() {
     if [ -e $patch_path ]; then
+	echo "$EXTRA patching $srcdir with $patch_path"
 	cd $srcdir && patch -f -p1 < $patch_path
 	
 	if [[ $? != 0 ]]; then
@@ -239,6 +240,8 @@ patch_source() {
 	    rm -rf $srcdir
 	    return 1
 	fi
+    else
+	echo "$EXTRA no patches to be applied"
     fi
 
     return 0
@@ -252,8 +255,9 @@ create_srcbuild() {
     # echo "$EXTRA copying symlinks in targets/$targets/$basename to .autogen/build/$basename"
     # cd $srcdir && find -type l -print0 | xargs -0 -I {} bash -c 'mkdir -p $3/$(dirname "$1") && cp -P "$2"/"{}" "$3"/"{}"' -- {} "$srcdir" "$srcbuild"
 
-    echo "$EXTRA copying source to .autogen/build/$basename"
-    cp -r $srcdir $srcbuild
+    mkdir -p $srcbuild
+    echo "$EXTRA copying $srcdir to $srcbuild"
+    cp -rf $srcdir/. $srcbuild
 }
 
 iget_source() {
@@ -273,9 +277,9 @@ iget_source() {
     patch_path="$srcdir.patch"
 
     srcclean="$ARC_CLEAN_SRC/$basename"
-    srcbuild="$ARC_BUILDS/$basename"
+    srcbuild="$ARC_BUILDS/$basename/src"
     
-    echo "$EXTRA attempting to get source directory for $basename.tar"
+    echo "$EXTRA attempting to get source directory for $basename"
     
     if [ -d $srcdir ]; then
 	[[ ! -d $srcbuild ]] && create_srcbuild
@@ -295,11 +299,12 @@ iget_source() {
     fi
     
     if [ -d $srcclean ]; then
-	cp -r $srcclean $mk
+	echo "$EXTRA $srcclean exists, copying it to $mk"
+	cp -rf $srcclean $mk
 	patch_source
 	[[ $? != 0 ]] && return 9
     elif [ -e $tar_path ]; then
-	mkdir $srcdir
+	mkdir -p $srcdir
 	# TODO: Most likely whatever service generated the tar
 	#       will have included the parent directory so this
 	#       is fine, but what if it didn't? How can this case 
@@ -314,8 +319,8 @@ iget_source() {
 
 	echo "$EXTRA extracted $basename.tar"
 	
-	echo "$EXTRA copying clean source to .autogen/src.clean/$basename"
-	cp -r $srcdir $srcclean
+	echo "$EXTRA copying extracted source to $srcclean"
+	cp -rf $srcdir $srcclean
 		
 	patch_source
 	[[ $? != 0 ]] && return 4
@@ -324,13 +329,18 @@ iget_source() {
 	return 2
     fi
 
-    if [ ! -d $ARC_SOURCE_DIR ]; then
+    if [ ! -d $srcdir ]; then
 	echo "$ERROR Failed to create source directory for target=$target"
 	return 1
     fi
-
+    
     create_srcbuild
     
+    if [ ! -d $srcbuild ] || [ ! -d $srcdir ] || [ ! -d $srcclean ]; then
+	echo "$ERROR Failed to create source directories for target=$target"
+	return 10
+    fi
+
     return 0
 }
 
