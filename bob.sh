@@ -119,8 +119,9 @@ ERROR="ERROR :"
 TODO="TODO  :"
 EXTRA="        "
 
-[[ $ARC_ROOT    == "" ]] && export ARC_ROOT="$PWD"
-[[ $ARC_TARGETS == "" ]] && export ARC_TARGETS="$ARC_ROOT/targets"
+[[ $ARC_ROOT          == "" ]] && export ARC_ROOT="$PWD"
+[[ $ARC_TARGETS       == "" ]] && export ARC_TARGETS="$ARC_ROOT/targets"
+[[ $BOB_MAKEFILE_NAME == "" ]] && BOB_MAKEFILE_NAME="bob.mk"
 
 ARC_BUILDS="$ARC_ROOT/.autogen/build"
 ARC_CLEAN_SRC="$ARC_ROOT/.autogen/clean"
@@ -161,7 +162,7 @@ operation_suffix() {
 checkget_target() {
     # $1 = function
 
-    if [[ ! -e "$ARC_TARGETS/$target/Makefile" ]]; then
+    if [[ ! -e "$ARC_TARGETS/$target/$BOB_MAKEFILE_NAME" ]]; then
 	echo "$ERROR Could not find Makefile for target=$target"
 	return 1
     fi
@@ -189,7 +190,7 @@ checkget_target() {
 
 overwrite_source() {
     local srcdir_overwrite
-    srcdir_overwrite=$(make -C $mk -s get-source-dir 2>/dev/null)
+    srcdir_overwrite=$(make -f $mk/$BOB_MAKEFILE_NAME -s get-source-dir 2>/dev/null)
     
     if [[ $? == 0 ]]; then
 	echo "$EXTRA overwrote source directory to $srcdir_overwrite"
@@ -199,7 +200,7 @@ overwrite_source() {
 	echo "$EXTRA no source directory overwrite specified"
     fi
 
-    srcdir_overwrite=$(make -C $mk -s use-source-dir-of 2>/dev/null)    
+    srcdir_overwrite=$(make -f $mk/$BOB_MAKEFILE_NAME -s use-source-dir-of 2>/dev/null)    
 
     if [[ $? == 0 ]]; then
 	echo "$EXTRA attempting to use source directory of target=$srcdir_overwrite"
@@ -212,7 +213,7 @@ overwrite_source() {
 
 download_source() {
     local urls
-    urls=($(make -C $mk -s get-urls 2>/dev/null))
+    urls=($(make -f $mk/$BOB_MAKEFILE_NAME -s get-urls 2>/dev/null))
     
     if [[ $? != 0 ]]; then
 	echo "$ERROR Failed to get-urls for target=$target"
@@ -269,14 +270,14 @@ iget_source() {
     # $1 = operation
     overwrite_source 
 
-    version=$(make -C $mk -s get-version 2>/dev/null)
+    version=$(make -f $mk/$BOB_MAKEFILE_NAME -s get-version 2>/dev/null)
 
     if [[ $? != 0 ]]; then
 	echo "$ERROR Could not get version number"
 	return 6
     fi
 
-    basename=$(make -C $mk -s get-basename 2>/dev/null)
+    basename=$(make -f $mk/$BOB_MAKEFILE_NAME -s get-basename 2>/dev/null)
     
     if [[ $? != 0 ]]; then
 	basename="$target-$version"
@@ -371,7 +372,7 @@ get_source() {
 }
 
 build_deps() {
-    local deps=($(make -C $mk -s get-deps))
+    local deps=($(make -f $mk/$BOB_MAKEFILE_NAME -s get-deps))
     
     echo "$EXTRA deps=${deps[@]}"
 
@@ -424,7 +425,7 @@ build() {
     echo "$INFO Building target=$target"
     
     cd $mk
-    ARC_SOURCE_DIR=$srcbuild make build
+    ARC_SOURCE_DIR=$srcbuild make -f $BOB_MAKEFILE_NAME build
     
     operation_suffix "build" $?
     return $?
@@ -467,9 +468,9 @@ clean() {
 
     cd $mk
     if [[ $type == "rebuild" ]]; then
-	ARC_SOURCE_DIR=$srcbuild make prepare-rebuild
+	ARC_SOURCE_DIR=$srcbuild make -f $BOB_MAKEFILE_NAME prepare-rebuild
     else
-	ARC_SOURCE_DIR=$srcbuild make clean
+	ARC_SOURCE_DIR=$srcbuild make -f $BOB_MAKEFILE_NAME clean
 	rm -rf $srcdir
 	rm -rf $srcclean
 	rm -rf $srcbuild
@@ -516,17 +517,17 @@ cmdmux() {
     
     case $1 in
 	"build")	
-	    build $target
+	    build "$target"
 	    ;;
 	"rebuild")
-	    clean $target "rebuild"
-	    build $target
+	    clean "$target" "rebuild"
+	    build "$target"
 	    ;;
 	"clean")
-	    clean $target "full"
+	    clean "$target" "full"
 	    ;;
 	"mkpatch")
-	    mkpatch $target
+	    mkpatch "$target"
 	    ;;
 	"version")
 	    echo "version=bob.sh-$BOB_VERSION"
@@ -545,9 +546,11 @@ main() {
     local targets
     targets="${@:2}"
 
-    [[ $2 == "all" ]] && \
-	targets=$(find $ARC_TARGETS -maxdepth 1 -type d -not -path $ARC_TARGETS -printf "%f\n")
-
+    if [[ $2 == "all" ]]; then
+	target_paths=$(find $ARC_TARGETS -type f -name $BOB_MAKEFILE_NAME -exec dirname {} \;)
+	targets=("${target_paths//"$ARC_TARGETS/"/}")
+    fi
+    
     [[ $# == 2 ]] && cmdmux $@
     
     for target in $targets; do
