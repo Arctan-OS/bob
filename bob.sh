@@ -119,22 +119,24 @@ ERROR="ERROR :"
 TODO="TODO  :"
 EXTRA="        "
 
-[[ $ARC_ROOT          == "" ]] && export ARC_ROOT="$PWD"
-[[ $ARC_TARGETS       == "" ]] && export ARC_TARGETS="$ARC_ROOT/targets"
-[[ $BOB_MAKEFILE_NAME == "" ]] && BOB_MAKEFILE_NAME="bob.mk"
+[[ $BOB_ROOT                 == "" ]] && export BOB_ROOT="$PWD"
+[[ $BOB_TARGETS              == "" ]] && export BOB_TARGETS="$BOB_ROOT/targets"
+[[ $BOB_MAKEFILE_NAME        == "" ]] && BOB_MAKEFILE_NAME="bob.mk"
+[[ $BOB_DISABLE_STATUS_FILES == "" ]] && BOB_DISABLE_STATUS_FILES="no"
 
-ARC_BUILDS="$ARC_ROOT/.autogen/build"
-ARC_CLEAN_SRC="$ARC_ROOT/.autogen/clean"
-ARC_AUTOGEN_USAGE="$ARC_ROOT/.autogen/README.md"
+BOB_DOT_AUTOGEN="$BOB_ROOT/.autogen"
+BOB_BUILD="$BOB_DOT_AUTOGEN/build"
+BOB_CLEAN="$BOB_DOT_AUTOGEN/clean"
+BOB_AUTOGEN_USAGE="$BOB_DOT_AUTOGEN/README.md"
 
-[ ! -d $ARC_TARGETS       ] && mkdir -p $ARC_TARGETS
-[ ! -d $ARC_BUILDS        ] && mkdir -p $ARC_BUILDS
-[ ! -d $ARC_CLEAN_SRC     ] && mkdir -p $ARC_CLEAN_SRC
-[ ! -e $ARC_AUTOGEN_USAGE ] && autogen_usage > $ARC_AUTOGEN_USAGE
+[ ! -d $BOB_TARGETS       ] && mkdir -p $BOB_TARGETS
+[ ! -d $BOB_BUILD         ] && mkdir -p $BOB_BUILD
+[ ! -d $BOB_CLEAN         ] && mkdir -p $BOB_CLEAN
+[ ! -e $BOB_AUTOGEN_USAGE ] && autogen_usage > $BOB_AUTOGEN_USAGE
 
 [[ $BOB_DEBUG == "yes" ]] && set -x
 
-BOB_VERSION="0.1"
+export BOB_VERSION="0.1"
 
 if [[ $# < 1 ]]; then
     echo "$ERROR Need at leat one argument (all, rebuild, clean)"
@@ -148,12 +150,12 @@ operation_suffix() {
     
     if [[ $2 != 0 ]]; then
 	echo "$ERROR Failed to $1 target=$target"
-	if [[ $mk != "" ]]; then
-	    echo "$2"> "$mk/$1.fail"
+	if [[ $mk != "" ]] && [[ $BOB_DISABLE_STATUS_FILES != "yes" ]]; then
+	    echo "$2" > "$mk/$1.fail"
 	fi
     else
 	echo "$INFO Successful $1 for target=$target"
-	touch $mk/$1.complete
+	[[ $BOB_DISABLE_STATUS_FILES != "yes" ]] && touch $mk/$1.complete
     fi
 
     return $2
@@ -162,22 +164,22 @@ operation_suffix() {
 checkget_target() {
     # $1 = function
 
-    if [[ ! -e "$ARC_TARGETS/$target/$BOB_MAKEFILE_NAME" ]]; then
+    if [[ ! -e "$BOB_TARGETS/$target/$BOB_MAKEFILE_NAME" ]]; then
 	echo "$ERROR Could not find Makefile for target=$target"
 	return 1
     fi
 
-    mk="$ARC_TARGETS/$target"
+    mk="$BOB_TARGETS/$target"
     
     if [[ $1 == "build" ]]; then
-	status="$ARC_TARGETS/$target/build.complete"
+	status="$BOB_TARGETS/$target/build.complete"
 	
 	if [[ -e $status ]]; then
 	    echo "$EXTRA target already built, skipping"
 	    return 2
 	fi
 
-	status="$ARC_TARGETS/$target/build.fail"
+	status="$BOB_TARGETS/$target/build.fail"
 
 	if [[ -e $status ]]; then
 	    echo "$EXTRA target already failed to build, skipping"
@@ -292,8 +294,8 @@ iget_source() {
     tar_path="$srcdir.tar"
     patch_path="$srcdir.patch"
 
-    srcclean="$ARC_CLEAN_SRC/$basename"
-    srcbuild="$ARC_BUILDS/$basename/src"
+    srcclean="$BOB_CLEAN/$basename"
+    srcbuild="$BOB_BUILD/$basename/src"
     
     echo "$EXTRA attempting to get source directory for $basename"
        
@@ -425,7 +427,7 @@ build() {
     echo "$INFO Building target=$target"
     
     cd $mk
-    ARC_SOURCE_DIR=$srcbuild make -f $BOB_MAKEFILE_NAME build
+    SOURCE_DIR=$srcbuild make -f $BOB_MAKEFILE_NAME build
     
     operation_suffix "build" $?
     return $?
@@ -468,12 +470,14 @@ clean() {
 
     cd $mk
     if [[ $type == "rebuild" ]]; then
-	ARC_SOURCE_DIR=$srcbuild make -f $BOB_MAKEFILE_NAME prepare-rebuild
+	SOURCE_DIR=$srcbuild make -f $BOB_MAKEFILE_NAME prepare-rebuild
     else
-	ARC_SOURCE_DIR=$srcbuild make -f $BOB_MAKEFILE_NAME clean
+	SOURCE_DIR=$srcbuild make -f $BOB_MAKEFILE_NAME clean
 	rm -rf $srcdir
 	rm -rf $srcclean
 	rm -rf $srcbuild
+	rm -f "$srcdir.tar"
+	BOB_DISABLE_STATUS_FILES="yes"
     fi
 
     operation_suffix "clean" $?
@@ -482,6 +486,10 @@ clean() {
 
 mkpatch() {
     local target="$1"
+
+    if [[ $target == "" ]]; then
+	return 0
+    fi
     
     local mk
     checkget_target "mkpatch"
@@ -499,9 +507,8 @@ mkpatch() {
 	return $?
     fi
 
-    # TODO: Maybe use git format-patch?
     echo "$EXTRA creating patch"
-    local clean_rel_path="$(realpath --relative-to=$srcdir $ARC_CLEAN_SRC/$basename)"
+    local clean_rel_path="$(realpath --relative-to=$srcdir $BOB_CLEAN/$basename)"
     cd $srcdir && git diff --no-index $clean_rel_path . -p > $patch_path
     
     case $? in
@@ -514,17 +521,18 @@ mkpatch() {
 
 cmdmux() {
     local tmp_PWD=$PWD
+    local tmp_BOB_DISABLE_STATUS_FILES=$BOB_DISABLE_STATUS_FILES
     
     case $1 in
 	"build")	
 	    build "$target"
 	    ;;
+	"clean")
+	    clean "$target" "full"
+	    ;;
 	"rebuild")
 	    clean "$target" "rebuild"
 	    build "$target"
-	    ;;
-	"clean")
-	    clean "$target" "full"
 	    ;;
 	"mkpatch")
 	    mkpatch "$target"
@@ -539,16 +547,30 @@ cmdmux() {
 	    ;;
     esac
 
+    BOB_DISABLE_STATUS_FILES=$tmp_BOB_DISABLE_STATUS_FILES
     PWD=$tmp_PWD
 }
 
+# TODO: What would be cool is a secondary script that could be run in series, but before,
+#       this script to containerize everything to a specific environment. This way builds
+#       would be a little bit more portable
+
 main() {
+    # $1    = command
+    # $2..n = target(s)
+    
     local targets
     targets="${@:2}"
 
     if [[ $2 == "all" ]]; then
-	target_paths=$(find $ARC_TARGETS -type f -name $BOB_MAKEFILE_NAME -exec dirname {} \;)
-	targets=("${target_paths//"$ARC_TARGETS/"/}")
+	target_paths=$(find $BOB_TARGETS -type f -name $BOB_MAKEFILE_NAME -exec dirname {} \;)
+	# TODO: This introduces some weirdness by adding an empty element at the beginning
+	#       of the list, this was fixed by wrapping all instances of $target in cmdmux
+	#       in double quotes; however, is it certain that the first element will always
+	#       be empty and if so, how can it be trimmed?
+	# TODO: This string substitution also makes it impossible for a target to be called
+	#       $PWD/*
+	targets=("${target_paths//"$BOB_TARGETS/"/}")
     fi
     
     [[ $# == 2 ]] && cmdmux $@

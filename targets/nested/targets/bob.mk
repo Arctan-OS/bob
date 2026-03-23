@@ -5,7 +5,7 @@ DEPS :=
 
 .PHONY: build
 build:
-	@echo "Definitely building ARC_SOURCE_DIR=$(ARC_SOURCE_DIR)"
+	@echo "Definitely building SOURCE_DIR=$(SOURCE_DIR)"
 
 .PHONY: clean
 clean:

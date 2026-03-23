@@ -7,7 +7,7 @@ MESON_FLAGS := --reconfigure --cross-file $(ARC_BUILD_SUPPORT)/meson.cross --pre
 
 NINJA_FLAGS := -C build
 
-MLIBC_ROOT := $(ARC_TARGETS)/mlibc-headers/$()
+MLIBC_ROOT := $(BOB_TARGETS)/mlibc-headers/$()
 
 COMPLETE := $(shell realpath build.complete)
 
