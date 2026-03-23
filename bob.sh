@@ -257,11 +257,6 @@ create_srcbuild() {
     # cd $srcdir && find -type f -print0 | xargs -0 -I {} bash -c 'mkdir -p $3/$(dirname "$1") && ln -s "$2"/"{}" "$3"/"{}"' -- {} "$srcdir" "$srcbuild"
     # echo "$EXTRA copying symlinks in targets/$targets/$basename to .autogen/build/$basename"
     # cd $srcdir && find -type l -print0 | xargs -0 -I {} bash -c 'mkdir -p $3/$(dirname "$1") && cp -P "$2"/"{}" "$3"/"{}"' -- {} "$srcdir" "$srcbuild"
-
-    if [[ -d $srcbuild ]]; then
-	echo "$EXTRA $srcbuild exists, deleting it"
-	rm -rf $srcbuild
-    fi
     
     mkdir -p $srcbuild
     echo "$EXTRA copying $srcdir to $srcbuild"
@@ -306,7 +301,7 @@ iget_source() {
 
     if [ -d $srcdir ]; then
 	echo "$EXTRA found source directory: $srcdir"
-	create_srcbuild
+	[[ ! -d $srcbuild ]] && create_srcbuild
 	
 	return 0
     fi
@@ -475,11 +470,12 @@ clean() {
 	SOURCE_DIR=$srcbuild make -f $BOB_MAKEFILE_NAME clean
 	rm -rf $srcdir
 	rm -rf $srcclean
-	rm -rf $srcbuild
 	rm -f "$srcdir.tar"
 	BOB_DISABLE_STATUS_FILES="yes"
     fi
-
+    
+    rm -rf $srcbuild
+    
     operation_suffix "clean" $?
     return $?
 }
