@@ -27,6 +27,3 @@ get-version:
 get-urls:
 	@echo $(URLS)
 
-.PHONY: get-basename
-get-basename:
-	@echo $(NAME)

@@ -212,7 +212,7 @@ overwrite_source() {
 
 download_source() {
     local urls
-    urls=($(make -C $mk -s get-urls))
+    urls=($(make -C $mk -s get-urls 2>/dev/null))
     
     if [[ $? != 0 ]]; then
 	echo "$ERROR Failed to get-urls for target=$target"
@@ -255,6 +255,11 @@ create_srcbuild() {
     # echo "$EXTRA copying symlinks in targets/$targets/$basename to .autogen/build/$basename"
     # cd $srcdir && find -type l -print0 | xargs -0 -I {} bash -c 'mkdir -p $3/$(dirname "$1") && cp -P "$2"/"{}" "$3"/"{}"' -- {} "$srcdir" "$srcbuild"
 
+    if [[ -d $srcbuild ]]; then
+	echo "$EXTRA $srcbuild exists, deleting it"
+	rm -rf $srcbuild
+    fi
+    
     mkdir -p $srcbuild
     echo "$EXTRA copying $srcdir to $srcbuild"
     cp -Pprf $srcdir/. $srcbuild
@@ -264,14 +269,14 @@ iget_source() {
     # $1 = operation
     overwrite_source 
 
-    version=$(make -C $mk -s get-version)
+    version=$(make -C $mk -s get-version 2>/dev/null)
 
     if [[ $? != 0 ]]; then
 	echo "$ERROR Could not get version number"
 	return 6
     fi
 
-    basename=$(make -C $mk -s get-basename)
+    basename=$(make -C $mk -s get-basename 2>/dev/null)
     
     if [[ $? != 0 ]]; then
 	basename="$target-$version"
@@ -290,18 +295,20 @@ iget_source() {
     srcbuild="$ARC_BUILDS/$basename/src"
     
     echo "$EXTRA attempting to get source directory for $basename"
-    
-    if [ -d $srcdir ]; then
-	[[ ! -d $srcbuild ]] && create_srcbuild
-	
-	echo "$EXTRA found source directory: $srcdir"
-	return 0
-    fi
-    
+       
     if [[ $1 == "clean" ]]; then
 	echo "$EXTRA will not download sources for clean operation"
 	return 8
     fi
+
+    if [ -d $srcdir ]; then
+	echo "$EXTRA found source directory: $srcdir"
+	create_srcbuild
+	
+	return 0
+    fi
+    
+    mkdir -p $srcdir
     
     if [ ! -e $tar_path ]; then
 	download_source
@@ -309,12 +316,11 @@ iget_source() {
     fi
     
     if [ -d $srcclean ]; then
-	echo "$EXTRA $srcclean exists, copying it to $mk"
-	cp -Pprf $srcclean $mk
+	echo "$EXTRA $srcclean exists, copying it to $srcdir"
+	cp -Pprf $srcclean/. $srcdir
 	patch_source
 	[[ $? != 0 ]] && return 9
     elif [ -e $tar_path ]; then
-	mkdir -p $srcdir
 	# TODO: Most likely whatever service generated the tar
 	#       will have included the parent directory so this
 	#       is fine, but what if it didn't? How can this case 
@@ -328,9 +334,10 @@ iget_source() {
 	fi
 
 	echo "$EXTRA extracted $basename.tar"
-	
+
+	mkdir -p $srcclean
 	echo "$EXTRA copying extracted source to $srcclean"
-	cp -Pprf $srcdir $srcclean
+	cp -Pprf $srcdir/. $srcclean
 		
 	patch_source
 	[[ $? != 0 ]] && return 4
@@ -468,7 +475,6 @@ clean() {
 	rm -rf $srcbuild
     fi
 
-    
     operation_suffix "clean" $?
     return $?
 }
