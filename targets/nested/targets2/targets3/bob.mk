@@ -1,7 +1,7 @@
 VERSION := 2.72
 NAME := autoconf-$(VERSION)
 URLS := https://ftp.gnu.org/gnu/autoconf/$(NAME).tar.gz
-DEPS := nested/targets2/targets3
+DEPS :=
 
 .PHONY: build
 build:

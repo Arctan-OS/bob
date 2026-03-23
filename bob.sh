@@ -286,7 +286,7 @@ iget_source() {
 	echo "$EXTRA no basename provided, using default"
     fi
     
-    flat_basename="${basename//\//-}"
+    flat_basename="${basename##*/}"
 
     echo "$EXTRA basename=$basename (flat: $flat_basename)"
     
