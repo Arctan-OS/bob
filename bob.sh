@@ -128,7 +128,7 @@ ARC_AUTOGEN_USAGE="$ARC_ROOT/.autogen/README.md"
 
 [ ! -d $ARC_TARGETS       ] && mkdir -p $ARC_TARGETS
 [ ! -d $ARC_BUILDS        ] && mkdir -p $ARC_BUILDS
-[ ! -d $ARC_CLEAN_SRC     ] && mkdir -p $ARC_CLEAN_SRC && echo "made $ARC_CLEAN_SRC"
+[ ! -d $ARC_CLEAN_SRC     ] && mkdir -p $ARC_CLEAN_SRC
 [ ! -e $ARC_AUTOGEN_USAGE ] && autogen_usage > $ARC_AUTOGEN_USAGE
 
 [[ $BOB_DEBUG == "yes" ]] && set -x
@@ -270,9 +270,19 @@ iget_source() {
 	echo "$ERROR Could not get version number"
 	return 6
     fi
+
+    basename=$(make -C $mk -s get-basename)
     
-    basename="$target-$version"
-    srcdir="$mk/$basename"
+    if [[ $? != 0 ]]; then
+	basename="$target-$version"
+	echo "$EXTRA no basename provided, using default"
+    fi
+    
+    flat_basename="${basename//\//-}"
+
+    echo "$EXTRA basename=$basename (flat: $flat_basename)"
+    
+    srcdir="$mk/$flat_basename"
     tar_path="$srcdir.tar"
     patch_path="$srcdir.patch"
 
