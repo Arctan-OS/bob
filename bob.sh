@@ -190,13 +190,22 @@ checkget_target() {
     return 0
 }
 
+# Defined Behavior:
+#  * A Makefile which describes no override (download source and use basename)
+#  * A Makefile which describes an overwrite (use this directory, do not delete it on clean)
+#  * A Makefile which uses another target's source directory (and that target falls under the first case)
+#  * A Makefile which uses another target's source directory (and that target falls under the second case)
+#  TODO: This will forever recurse in the event that targetA uses the source dir of targetB who uses the
+#        source dir of targetA. Detect this
 overwrite_source() {
     local srcdir_overwrite
     srcdir_overwrite=$(make -f $mk/$BOB_MAKEFILE_NAME -s get-source-dir 2>/dev/null)
     
     if [[ $? == 0 ]]; then
 	echo "$EXTRA overwrote source directory to $srcdir_overwrite"
+	srcdir_owner=""
 	srcdir=$srcdir_overwrite
+	[[ ! -d $srcdir ]] && return 1
 	return 0
     else
 	echo "$EXTRA no source directory overwrite specified"
@@ -209,8 +218,21 @@ overwrite_source() {
 
 	target=$srcdir_overwrite
 	checkget_target "get_source"
-	[[ $? != 0 ]] && mk=$tmp_mk && target=$tmp_target
+	if [[ $? != 0 ]]; then
+	    mk=$tmp_mk
+	    target=$tmp_target
+	    return 2
+	fi
+
+	overwrite_source
+	# NOT1E: The reason a non-zero return code is given is so that iget_source
+	#        determines the source directory itself as no specific directory was
+	#        provided; only the target was found.
+	return 3
     fi
+
+    # NOTE1
+    return 4
 }
 
 download_source() {
@@ -257,15 +279,27 @@ create_srcbuild() {
     # cd $srcdir && find -type f -print0 | xargs -0 -I {} bash -c 'mkdir -p $3/$(dirname "$1") && ln -s "$2"/"{}" "$3"/"{}"' -- {} "$srcdir" "$srcbuild"
     # echo "$EXTRA copying symlinks in targets/$targets/$basename to .autogen/build/$basename"
     # cd $srcdir && find -type l -print0 | xargs -0 -I {} bash -c 'mkdir -p $3/$(dirname "$1") && cp -P "$2"/"{}" "$3"/"{}"' -- {} "$srcdir" "$srcbuild"
+
+    [[ -d $srcbuild ]] && return 0
     
     mkdir -p $srcbuild
     echo "$EXTRA copying $srcdir to $srcbuild"
     cp -Pprf $srcdir/. $srcbuild
 }
 
+create_srcclean() {
+    [[ -d $srcclean ]] && return 0
+    mkdir -p $srcclean
+    echo "$EXTRA copying $srcdir to $srcclean"
+    cp -Pprf $srcdir/. $srcclean
+}
+
 iget_source() {
     # $1 = operation
-    overwrite_source 
+
+    srcdir_owner="bob.sh"
+    
+    overwrite_source
 
     version=$(make -f $mk/$BOB_MAKEFILE_NAME -s get-version 2>/dev/null)
 
@@ -273,7 +307,7 @@ iget_source() {
 	echo "$ERROR Could not get version number"
 	return 6
     fi
-
+    
     basename=$(make -f $mk/$BOB_MAKEFILE_NAME -s get-basename 2>/dev/null)
     
     if [[ $? != 0 ]]; then
@@ -282,28 +316,31 @@ iget_source() {
     fi
     
     flat_basename="${basename##*/}"
-
+    
     echo "$EXTRA basename=$basename (flat: $flat_basename)"
     
-    srcdir="$mk/$flat_basename"
-    tar_path="$srcdir.tar"
-    patch_path="$srcdir.patch"
+    if [[ $srcdir == "" ]]; then
+	srcdir="$mk/$flat_basename"
 
+	echo "$EXTRA attempting to get source directory for $basename"
+    fi
+    
+    tar_path="$srcdir.tar"
+    patch_path="$srcdir.patch"	
     srcclean="$BOB_CLEAN/$basename"
     srcbuild="$BOB_BUILD/$basename/src"
     
-    echo "$EXTRA attempting to get source directory for $basename"
-       
-    if [[ $1 == "clean" ]]; then
-	echo "$EXTRA will not download sources for clean operation"
-	return 8
-    fi
-
+    echo "$EXTRA found source directory: $srcdir"    
+    
     if [ -d $srcdir ]; then
-	echo "$EXTRA found source directory: $srcdir"
-	[[ ! -d $srcbuild ]] && create_srcbuild
+	[[ $1 != "clean" ]] && create_srcbuild && create_srcclean
 	
 	return 0
+    fi
+
+    if [[ $1 == "clean" ]]; then
+	echo "$EXTRA will not download source for clean operation"
+	return 8
     fi
     
     mkdir -p $srcdir
@@ -333,9 +370,7 @@ iget_source() {
 
 	echo "$EXTRA extracted $basename.tar"
 
-	mkdir -p $srcclean
-	echo "$EXTRA copying extracted source to $srcclean"
-	cp -Pprf $srcdir/. $srcclean
+	create_srcclean
 		
 	patch_source
 	[[ $? != 0 ]] && return 4
@@ -410,6 +445,7 @@ build() {
 
     echo "$INFO Getting source directory for target=$target"
     local srcdir
+    local srcdir_owner
     local srcclean
     local srcbuild
     get_source "build"
@@ -449,6 +485,7 @@ clean() {
     rm -f $mk/*.complete $mk/*.fail
     
     local srcdir
+    local srcdir_owner
     local srcclean
     local srcbuild
     get_source "clean"
@@ -468,9 +505,15 @@ clean() {
 	SOURCE_DIR=$srcbuild make -f $BOB_MAKEFILE_NAME prepare-rebuild
     else
 	SOURCE_DIR=$srcbuild make -f $BOB_MAKEFILE_NAME clean
-	rm -rf $srcdir
+	if [[ $srcdir_owner == "bob.sh" ]]; then
+	   rm -rf $srcdir
+	   rm -f "$srcdir.tar"
+	else
+	    echo "$EXTRA srcdir owner=$srcdir_owner, not deleting"
+	fi
+	
 	rm -rf $srcclean
-	rm -f "$srcdir.tar"
+
 	BOB_DISABLE_STATUS_FILES="yes"
     fi
     

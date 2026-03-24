@@ -28,4 +28,4 @@ get-urls:
 
 .PHONY: get-source-dir
 get-source-dir:
-	@echo $(ARC_ROOT)
+	@echo $(BOB_TARGETS)/toolA
