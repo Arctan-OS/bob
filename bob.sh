@@ -101,6 +101,45 @@ print_usage() {
 # Target Makefiles
          See targets/toolA or toolB to see the base implementation of a valid Makefile.
 
+## Target's in Makefiles
+         bob.sh will call into Makefiles to attain more information about a given target.
+	 It is important to distinguish target Makefiles, located in folders within the
+	 "targets" subdirectory ("bob target(s)"), and the targets of those Makefiles, actions
+ 	 or files the Makefile can build.
+
+	 bob.sh calls the following targets within a target's Makefile:
+### Mandatory
+#### build
+         A phony target that actually builds the source code provided in the SOURCE_CODE
+	 variable.
+#### clean
+         A phony target that preforms additional cleaning work.
+#### prepare-rebuild
+         A phony which prepares the source code for a future build.
+#### get-version
+         Echoes the version number of the bob target.
+
+### Optional
+#### get-deps
+         Echoes none, one, or a series of space separated bob targets
+	 which must be built prior to the current bob target.
+#### get-urls
+         Echoes none, one, or a series of space separated URLs
+	 of which one may be chosen to download a .tar* source
+	 code archive from.
+#### get-staging
+         Echoes either nothing or "disabled" to disable the creation and
+	 copying of the source directory to $srcbuild and $srcclean.
+#### get-basename
+         Echoes the desired basename of the bob target to override the
+	 default $target-$version.
+#### get-source-dir
+         Echoes the absolute path to the source directory which should
+	 be used for the bob target.
+#### use-source-dir-of
+         Echoes the name of the bob target whose source directory should
+	 be used.
+
 # Enabling additional Debugging
          ```shell
          $ BOB_DEBUG=yes ./bob.sh [args]
@@ -229,6 +268,8 @@ overwrite_source() {
 	#        determines the source directory itself as no specific directory was
 	#        provided; only the target was found.
 	return 3
+    else
+	echo "$EXTRA not using the source directory of another target"
     fi
 
     # NOTE1
@@ -240,8 +281,8 @@ download_source() {
     urls=($(make -f $mk/$BOB_MAKEFILE_NAME -s get-urls 2>/dev/null))
     
     if [[ $? != 0 ]]; then
-	echo "$ERROR Failed to get-urls for target=$target"
-	return 7
+	echo "$EXTRA no URLs specified"
+	return 1
     fi
     
     for url in "${urls[@]}"; do
@@ -249,10 +290,12 @@ download_source() {
 	curl -o $tar_path -L $url
 	if [[ $? == 0 ]]; then
 	    echo "$EXTRA downloaded $url"
-	    break
+	    return 0
 	fi
 	echo "$EXTRA failed to download $url"
     done
+
+    return 2
 }
 
 patch_source() {
@@ -280,6 +323,11 @@ create_srcbuild() {
     # echo "$EXTRA copying symlinks in targets/$targets/$basename to .autogen/build/$basename"
     # cd $srcdir && find -type l -print0 | xargs -0 -I {} bash -c 'mkdir -p $3/$(dirname "$1") && cp -P "$2"/"{}" "$3"/"{}"' -- {} "$srcdir" "$srcbuild"
 
+    if [[ $staging == "disabled" ]]; then
+       echo "$EXTRA staging=$staging, srcbuild=srcdir"
+       srcbuild=$srcdir
+    fi
+       
     [[ -d $srcbuild ]] && return 0
     
     mkdir -p $srcbuild
@@ -288,7 +336,13 @@ create_srcbuild() {
 }
 
 create_srcclean() {
+    if [[ $staging == "disabled" ]]; then
+       echo "$EXTRA staging=$staging, srcclean=srcdir"
+       srcclean=$srcdir
+    fi
+       
     [[ -d $srcclean ]] && return 0
+    
     mkdir -p $srcclean
     echo "$EXTRA copying $srcdir to $srcclean"
     cp -Pprf $srcdir/. $srcclean
@@ -331,6 +385,11 @@ iget_source() {
     srcbuild="$BOB_BUILD/$basename/src"
     
     echo "$EXTRA found source directory: $srcdir"    
+
+    local staging
+    staging=$(make -f $mk/$BOB_MAKEFILE_NAME -s get-staging 2>/dev/null)
+
+    [[ $? != 0 ]] && staging=""
     
     if [ -d $srcdir ]; then
 	[[ $1 != "clean" ]] && create_srcbuild && create_srcclean
@@ -347,7 +406,6 @@ iget_source() {
     
     if [ ! -e $tar_path ]; then
 	download_source
-	[[ $? != 0 ]] && return 7
     fi
     
     if [ -d $srcclean ]; then
@@ -398,9 +456,12 @@ get_source() {
     # $1 = operation
     local tmp_mk=$mk
     local tmp_target=$target
+    local rc
     iget_source $@
+    rc=$?
     target=$tmp_target
     mk=$tmp_mk
+    return $rc
 }
 
 build_deps() {
@@ -412,7 +473,8 @@ build_deps() {
 	if [[ $parent == $dep ]]; then
 	    echo "$WARN Circular dependency detected, building target=$target then parent=$parent"
 	else
-	    build $dep $target	    
+	    build $dep $target
+	    [[ $? != 0 ]] && return 1
 	fi
     done
 
@@ -443,6 +505,12 @@ build() {
     
     build_deps
 
+    if [[ $? != 0 ]]; then
+	echo "$ERROR: Failed to build dependencies"
+	operation_suffix "build" 15
+	return $?	
+    fi
+    
     echo "$INFO Getting source directory for target=$target"
     local srcdir
     local srcdir_owner
@@ -512,12 +580,12 @@ clean() {
 	    echo "$EXTRA srcdir owner=$srcdir_owner, not deleting"
 	fi
 	
-	rm -rf $srcclean
+	[[ $srcdir != $srclean ]] && rm -rf $srcclean
 
 	BOB_DISABLE_STATUS_FILES="yes"
     fi
     
-    rm -rf $srcbuild
+    [[ $srcdir != $srcbuild ]] && rm -rf $srcbuild
     
     operation_suffix "clean" $?
     return $?
@@ -539,6 +607,9 @@ mkpatch() {
     fi
     
     local srcdir
+    local srcdir_owner
+    local srcclean
+    local srcbuild
     get_source "mkpatch"
 
     if [[ $? != 0 ]]; then
@@ -547,7 +618,7 @@ mkpatch() {
     fi
 
     echo "$EXTRA creating patch"
-    local clean_rel_path="$(realpath --relative-to=$srcdir $BOB_CLEAN/$basename)"
+    local clean_rel_path="$(realpath --relative-to=$srcdir $srcclean)"
     cd $srcdir && git diff --no-index $clean_rel_path . -p > $patch_path
     
     case $? in
