@@ -156,28 +156,28 @@ INFO="INFO  :"
 WARN="WARN  :"
 ERROR="ERROR :"
 TODO="TODO  :"
-EXTRA="        "
+EXTRA="EXTRA :    "
 
-[[ $BOB_ROOT                 == "" ]] && export BOB_ROOT="$PWD"
-[[ $BOB_TARGETS              == "" ]] && export BOB_TARGETS="$BOB_ROOT/targets"
-[[ $BOB_MAKEFILE_NAME        == "" ]] && BOB_MAKEFILE_NAME="bob.mk"
-[[ $BOB_DISABLE_STATUS_FILES == "" ]] && BOB_DISABLE_STATUS_FILES="no"
+[ "$BOB_ROOT"                 == "" ] && export BOB_ROOT="$PWD"
+[ "$BOB_TARGETS"              == "" ] && export BOB_TARGETS="$BOB_ROOT/targets"
+[ "$BOB_MAKEFILE_NAME"        == "" ] && BOB_MAKEFILE_NAME="bob.mk"
+[ "$BOB_DISABLE_STATUS_FILES" == "" ] && BOB_DISABLE_STATUS_FILES="no"
 
 BOB_DOT_AUTOGEN="$BOB_ROOT/.autogen"
 BOB_BUILD="$BOB_DOT_AUTOGEN/build"
 BOB_CLEAN="$BOB_DOT_AUTOGEN/clean"
 BOB_AUTOGEN_USAGE="$BOB_DOT_AUTOGEN/README.md"
 
-[ ! -d $BOB_TARGETS       ] && mkdir -p $BOB_TARGETS
-[ ! -d $BOB_BUILD         ] && mkdir -p $BOB_BUILD
-[ ! -d $BOB_CLEAN         ] && mkdir -p $BOB_CLEAN
-[ ! -e $BOB_AUTOGEN_USAGE ] && autogen_usage > $BOB_AUTOGEN_USAGE
+[ ! -d "$BOB_TARGETS"       ] && mkdir -p $BOB_TARGETS
+[ ! -d "$BOB_BUILD"         ] && mkdir -p $BOB_BUILD
+[ ! -d "$BOB_CLEAN"         ] && mkdir -p $BOB_CLEAN
+[ ! -e "$BOB_AUTOGEN_USAGE" ] && autogen_usage > $BOB_AUTOGEN_USAGE
 
-[[ $BOB_DEBUG == "yes" ]] && set -x
+[ "$BOB_DEBUG" == "yes" ] && set -x
 
 export BOB_VERSION="0.1"
 
-if [[ $# < 1 ]]; then
+if [ $# < 1 ]; then
     echo "$ERROR Need at leat one argument (all, rebuild, clean)"
     print_usage
 fi
@@ -188,7 +188,7 @@ operation_suffix() {
     echo "$INFO Leaving target=$target"
     
     if [[ $2 == 0 ]]; then
-	echo "$INFO Successful $1 for target=$target"
+	echo "$INFO Successful $1 for target=$target ($BOB_DISABLE_STATUS_FILES)"
 	[[ $BOB_DISABLE_STATUS_FILES != "yes" ]] && touch $mk/$1.complete
 	return 0
     fi
@@ -202,32 +202,24 @@ operation_suffix() {
 }
 
 checkget_target() {
-    # $1 = function
-
-    if [[ ! -e "$BOB_TARGETS/$target/$BOB_MAKEFILE_NAME" ]]; then
+    if [ ! -e "$BOB_TARGETS/$target/$BOB_MAKEFILE_NAME" ]; then
 	echo "$ERROR Could not find Makefile for target=$target"
 	return 1
     fi
 
     mk="$BOB_TARGETS/$target"
     
-    if [[ $1 == "build" ]]; then
-	status="$BOB_TARGETS/$target/build.complete"
-	
-	if [[ -e $status ]]; then
-	    echo "$EXTRA target already built, skipping"
-	    return 2
-	fi
-
-	status="$BOB_TARGETS/$target/build.fail"
-
-	if [[ -e $status ]]; then
-	    echo "$EXTRA target already failed to build, skipping"
-	    return 3
-	fi
-    fi
-    
     return 0
+}
+
+mk_retprop() {
+    # $1 = property
+    local val
+    local mk_retprop_rc
+    val=$(make -f $mk/$BOB_MAKEFILE_NAME -s $1 2>/dev/null)
+    mk_retprop_rc=$?
+    echo $val
+    return $mk_retprop_rc
 }
 
 # Defined Behavior:
@@ -239,9 +231,9 @@ checkget_target() {
 #        source dir of targetA. Detect this
 overwrite_source() {
     local srcdir_overwrite
-    srcdir_overwrite=$(make -f $mk/$BOB_MAKEFILE_NAME -s get-source-dir 2>/dev/null)
+    srcdir_overwrite=$(mk_retprop get-source-dir)
     
-    if [[ $? == 0 ]]; then
+    if [ $? == 0 ]; then
 	echo "$EXTRA overwrote source directory to $srcdir_overwrite"
 	srcdir_owner=""
 	srcdir=$srcdir_overwrite
@@ -251,9 +243,9 @@ overwrite_source() {
 	echo "$EXTRA no source directory overwrite specified"
     fi
 
-    srcdir_overwrite=$(make -f $mk/$BOB_MAKEFILE_NAME -s use-source-dir-of 2>/dev/null)    
-
-    if [[ $? == 0 ]]; then
+    srcdir_overwrite=$(mk_retprop use-source-dir-of)
+    
+    if [ $? == 0 ]; then
 	echo "$EXTRA attempting to use source directory of target=$srcdir_overwrite"
 
 	target=$srcdir_overwrite
@@ -279,9 +271,9 @@ overwrite_source() {
 
 download_source() {
     local urls
-    urls=($(make -f $mk/$BOB_MAKEFILE_NAME -s get-urls 2>/dev/null))
+    urls=($(mk_retprop get-urls))
     
-    if [[ $? != 0 ]]; then
+    if [ $? != 0 ]; then
 	echo "$EXTRA no URLs specified"
 	return 1
     fi
@@ -310,7 +302,7 @@ patch_source() {
     echo "$EXTRA patching $srcdir with $patch_path"
     cd $srcdir && patch -f -p1 < $patch_path
     
-    if [[ $? != 0 ]]; then
+    if [ $? != 0 ]; then
 	echo "$ERROR Failed to patch $basename"
 	rm -rf $srcdir
 	return 1
@@ -326,7 +318,7 @@ create_srcbuild() {
     # cd $srcdir && find -type f -print0 | xargs -0 -I {} bash -c 'mkdir -p $3/$(dirname "$1") && ln -s "$2"/"{}" "$3"/"{}"' -- {} "$srcdir" "$srcbuild"
     # echo "$EXTRA copying symlinks in targets/$targets/$basename to .autogen/build/$basename"
     # cd $srcdir && find -type l -print0 | xargs -0 -I {} bash -c 'mkdir -p $3/$(dirname "$1") && cp -P "$2"/"{}" "$3"/"{}"' -- {} "$srcdir" "$srcbuild"       
-    [[ -d $srcbuild ]] && return 0
+    [ -d "$srcbuild" ] && return 0
     
     mkdir -p $srcbuild
     echo "$EXTRA copying $srcdir to $srcbuild"
@@ -334,7 +326,7 @@ create_srcbuild() {
 }
 
 create_srcclean() {    
-    [[ -d $srcclean ]] && return 0
+    [ -d "$srcclean" ] && return 0
     
     mkdir -p $srcclean
     echo "$EXTRA copying $srcdir to $srcclean"
@@ -348,16 +340,16 @@ iget_source() {
     
     overwrite_source
 
-    version=$(make -f $mk/$BOB_MAKEFILE_NAME -s get-version 2>/dev/null)
+    version=$(mk_retprop get-version)
 
-    if [[ $? != 0 ]]; then
+    if [ $? != 0 ]; then
 	echo "$ERROR Could not get version number"
 	return 6
     fi
     
-    basename=$(make -f $mk/$BOB_MAKEFILE_NAME -s get-basename 2>/dev/null)
+    basename=$(mk_retprop get-basename)
     
-    if [[ $? != 0 ]]; then
+    if [ $? != 0 ]; then
 	basename="$target-$version"
 	echo "$EXTRA no basename provided, using default"
     fi
@@ -366,7 +358,7 @@ iget_source() {
     
     echo "$EXTRA basename=$basename (flat: $flat_basename)"
     
-    if [[ $srcdir == "" ]]; then
+    if [ "$srcdir" == "" ]; then
 	srcdir="$mk/$flat_basename"
 
 	echo "$EXTRA attempting to get source directory for $basename"
@@ -378,44 +370,44 @@ iget_source() {
     srcbuild="$BOB_BUILD/$basename/src"
    
     local staging
-    staging=$(make -f $mk/$BOB_MAKEFILE_NAME -s get-staging 2>/dev/null)
-    [[ $? != 0 ]] && staging=""
+    staging=$(mk_retprop get-staging)
+    [ $? != 0 ] && staging=""
 
-    if [[ $staging == "disabled" ]]; then
+    if [ "$staging" == "disabled" ]; then
 	echo "$EXTRA staging=$staging, srcbuild=srcclean=srcdir"
 	srcclean=$srcdir
 	srcbuild=$srcdir
     fi
     
-    if [ -d $srcdir ]; then
+    if [ -d "$srcdir" ]; then
 	echo "$EXTRA found srcdir=$srcdir"
         create_srcbuild
 
 	return 0
     fi
     
-    if [[ $1 == "clean" ]]; then
+    if [ "$1" == "clean" ]; then
 	echo "$EXTRA will not create source for clean operation"
 	return 8
     fi
     
     mkdir -p $srcdir
     
-    if [ ! -e $tar_path ]; then
+    if [ ! -e "$tar_path" ]; then
 	download_source
     fi
     
-    if [ -d $srcclean ]; then
+    if [ -d "$srcclean" ]; then
 	echo "$EXTRA $srcclean exists, copying it to $srcdir"
 	cp -Pprf $srcclean/. $srcdir
-    elif [ -e $tar_path ]; then
+    elif [ -e "$tar_path" ]; then
 	# TODO: Most likely whatever service generated the tar
 	#       will have included the parent directory so this
 	#       is fine, but what if it didn't? How can this case 
 	#       be detected and corrected for?
 	tar -xf $tar_path -C $srcdir --strip-components=1
 	
-	if [[ $? != 0 ]]; then
+	if [ $? != 0 ]; then
 	    echo "$ERROR Failed to extract $basename.tar"
 	    rm -rf $srcdir
 	    return 3
@@ -435,11 +427,11 @@ iget_source() {
     fi
 
     patch_source
-    [[ $? != 0 ]] && return 9
+    [ $? != 0 ] && return 9
     
     create_srcbuild
     
-    if [ ! -d $srcbuild ] || [ ! -d $srcclean ]; then
+    if [ ! -d "$srcbuild" ] || [ ! -d "$srcclean" ]; then
 	echo "$ERROR Failed to create source directories for target=$target"
 	return 10
     fi
@@ -460,16 +452,16 @@ get_source() {
 }
 
 build_deps() {
-    local deps=($(make -f $mk/$BOB_MAKEFILE_NAME -s get-deps))
+    local deps=($(mk_retprop get-deps))
     
     echo "$EXTRA deps=${deps[@]}"
 
     for dep in "${deps[@]}"; do
-	if [[ $parent == $dep ]]; then
+	if [ "$parent" == "$dep" ]; then
 	    echo "$WARN Circular dependency detected, building target=$target then parent=$parent"
 	else
 	    build $dep $target
-	    [[ $? != 0 ]] && return 1
+	    [ $? != 0 ] && return 1
 	fi
     done
 
@@ -480,35 +472,50 @@ build() {
     local target="$1"
     local parent="$2"
     
-    [[ $target == "" ]] && return 0
+    [ "$target" == "" ] && return 0
     
     echo "$INFO Entering target=$target (parent=$parent):"
     local mk
     checkget_target "build"
 
-    case $? in
-	0) ;;
-	2) operation_suffix "build" 0
-	   return $?
-	   ;;
-	*) operation_suffix "build" $?
-	   return $?
-	   ;;
-    esac
+    if [ $? != 0 ]; then
+	operation_suffix "build" 1
+	return $?
+    fi
+    
+    local status="$BOB_TARGETS/$target/build.complete"
+    
+    if [ -e "$status" ]; then
+	echo "$EXTRA target already built, skipping"
+	operation_suffix "build" 0
+	return $?
+    fi
+    
+    status="$BOB_TARGETS/$target/build.fail"
+    
+    if [ -e "$status" ]; then
+	echo "$EXTRA target already failed to build, skipping"
+	operation_suffix "build" 2
+	return $?
+    fi
     
     build_deps
 
-    if [[ $? != 0 ]]; then
-	echo "$ERROR: Failed to build dependencies"
-	operation_suffix "build" 15
+    if [ $? != 0 ]; then
+	echo "$ERROR Failed to build dependencies"
+	operation_suffix "build" 3
 	return $?	
     fi
     
     echo "$INFO Getting source directory for target=$target"
+    
+    local srcdir
+    local srcdir_owner
+    local srcclean
     local srcbuild
     get_source "build"
     
-    if [[ $? != 0 ]]; then
+    if [ $? != 0 ]; then
 	operation_suffix "build" 10
 	return $?
     fi
@@ -526,21 +533,21 @@ clean() {
     local target="$1"
     local type="$2"
     
-    if [[ $target == "" ]]; then
-	return 0
-    fi
+    [ "$target" == "" ] && return 0
 
     echo "$INFO Entering target=$target (type=$type):"
     
     local mk
     checkget_target "clean"
 
-    if [[ $? != 0 ]]; then
+    if [ $? != 0 ]; then
 	operation_suffix "clean" 1
 	return $?
     fi
 
     rm -f $mk/*.complete $mk/*.fail
+
+    [ "$type" == "full" ] && BOB_DISABLE_STATUS_FILES="yes"
     
     local srcdir
     local srcdir_owner
@@ -559,21 +566,20 @@ clean() {
     esac
 
     cd $mk
-    if [[ $type == "rebuild" ]]; then
+    if [ "$type" == "rebuild" ]; then
 	SOURCE_DIR=$srcbuild make -f $BOB_MAKEFILE_NAME prepare-rebuild
     else
 	SOURCE_DIR=$srcbuild make -f $BOB_MAKEFILE_NAME clean
-	if [[ $srcdir_owner == "bob.sh" ]]; then
+
+	if [ "$srcdir_owner" == "bob.sh" ]; then
 	   rm -rf $srcdir
 	   rm -f "$srcdir.tar"
 	else
 	    echo "$EXTRA srcdir owner=$srcdir_owner, not deleting"
 	fi
-	
-	[[ $srcdir != $srclean ]] && rm -rf $srcclean
-	[[ $srcdir != $srcbuild ]] && rm -rf $srcbuild
-	
-	BOB_DISABLE_STATUS_FILES="yes"
+
+	[ "$srcdir" != "$srcclean" ] && rm -rf $srcclean
+	[ "$srcdir" != "$srcbuild" ] && rm -rf $srcbuild
     fi
 
     operation_suffix "clean" $?
@@ -583,14 +589,12 @@ clean() {
 mkpatch() {
     local target="$1"
 
-    if [[ $target == "" ]]; then
-	return 0
-    fi
+    [ "$target" == "" ] && return 0
     
     local mk
     checkget_target "mkpatch"
 
-    if [[ $? != 0 ]]; then
+    if [ $? != 0 ]; then
 	operation_suffix "mkpatch" 1
 	return $?
     fi
@@ -599,7 +603,7 @@ mkpatch() {
     local srcclean
     get_source "mkpatch"
 
-    if [[ $? != 0 ]]; then
+    if [ $? != 0 ]; then
 	operation_suffix "mkpatch" 2
 	return $?
     fi
@@ -657,7 +661,7 @@ main() {
     local targets
     targets="${@:2}"
 
-    if [[ $2 == "all" ]]; then
+    if [ "$2" == "all" ]; then
 	target_paths=$(find $BOB_TARGETS -type f -name $BOB_MAKEFILE_NAME -exec dirname {} \;)
 	# TODO: This introduces some weirdness by adding an empty element at the beginning
 	#       of the list, this was fixed by wrapping all instances of $target in cmdmux
@@ -668,7 +672,7 @@ main() {
 	targets=("${target_paths//"$BOB_TARGETS/"/}")
     fi
     
-    [[ $# == 2 ]] && cmdmux $@
+    [ $# == 2 ] && cmdmux $@
     
     for target in $targets; do
 	cmdmux $@
