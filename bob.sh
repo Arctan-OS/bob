@@ -120,23 +120,23 @@ print_usage() {
          Echoes the version number of the bob target.
 
 ### Optional
-#### get-deps
+#### get-deps (default: "")
          Echoes none, one, or a series of space separated bob targets
 	 which must be built prior to the current bob target.
-#### get-urls
+#### get-urls (default: "")
          Echoes none, one, or a series of space separated URLs
 	 of which one may be chosen to download a .tar* source
 	 code archive from.
-#### get-staging
+#### get-staging (default: "yes")
          Echoes either nothing or "disabled" to disable the creation and
 	 copying of the source directory to $srcbuild and $srcclean.
-#### get-basename
+#### get-basename (default: "$target-$version")
          Echoes the desired basename of the bob target to override the
 	 default $target-$version.
-#### get-source-dir
+#### get-source-dir (default: "")
          Echoes the absolute path to the source directory which should
 	 be used for the bob target.
-#### use-source-dir-of
+#### use-source-dir-of (default: "")
          Echoes the name of the bob target whose source directory should
 	 be used.
 
@@ -187,16 +187,17 @@ operation_suffix() {
     # $2 = $?
     echo "$INFO Leaving target=$target"
     
-    if [[ $2 != 0 ]]; then
-	echo "$ERROR Failed to $1 target=$target"
-	if [[ $mk != "" ]] && [[ $BOB_DISABLE_STATUS_FILES != "yes" ]]; then
-	    echo "$2" > "$mk/$1.fail"
-	fi
-    else
+    if [[ $2 == 0 ]]; then
 	echo "$INFO Successful $1 for target=$target"
 	[[ $BOB_DISABLE_STATUS_FILES != "yes" ]] && touch $mk/$1.complete
+	return 0
     fi
 
+    echo "$ERROR Failed to $1 target=$target"
+    if [[ $mk != "" ]] && [[ $BOB_DISABLE_STATUS_FILES != "yes" ]]; then
+	echo "$2" > "$mk/$1.fail"
+    fi
+    
     return $2
 }
 
@@ -264,7 +265,7 @@ overwrite_source() {
 	fi
 
 	overwrite_source
-	# NOT1E: The reason a non-zero return code is given is so that iget_source
+	# NOTE1: The reason a non-zero return code is given is so that iget_source
 	#        determines the source directory itself as no specific directory was
 	#        provided; only the target was found.
 	return 3
@@ -288,10 +289,12 @@ download_source() {
     for url in "${urls[@]}"; do
 	echo "$EXTRA attempting to download $url"
 	curl -o $tar_path -L $url
+
 	if [[ $? == 0 ]]; then
 	    echo "$EXTRA downloaded $url"
 	    return 0
 	fi
+	
 	echo "$EXTRA failed to download $url"
     done
 
@@ -299,19 +302,20 @@ download_source() {
 }
 
 patch_source() {
-    if [ -e $patch_path ]; then
-	echo "$EXTRA patching $srcdir with $patch_path"
-	cd $srcdir && patch -f -p1 < $patch_path
-
-	if [[ $? != 0 ]]; then
-	    echo "$ERROR Failed to patch $basename"
-	    rm -rf $srcdir
-	    return 1
-	fi
-    else
+    if [ ! -e $patch_path ]; then
 	echo "$EXTRA no patches to be applied"
+	return 0
     fi
 
+    echo "$EXTRA patching $srcdir with $patch_path"
+    cd $srcdir && patch -f -p1 < $patch_path
+    
+    if [[ $? != 0 ]]; then
+	echo "$ERROR Failed to patch $basename"
+	rm -rf $srcdir
+	return 1
+    fi
+    
     return 0
 }
 
@@ -321,13 +325,7 @@ create_srcbuild() {
     # echo "$EXTRA linking files in targets/$targets/$basename to .autogen/build/$basename"
     # cd $srcdir && find -type f -print0 | xargs -0 -I {} bash -c 'mkdir -p $3/$(dirname "$1") && ln -s "$2"/"{}" "$3"/"{}"' -- {} "$srcdir" "$srcbuild"
     # echo "$EXTRA copying symlinks in targets/$targets/$basename to .autogen/build/$basename"
-    # cd $srcdir && find -type l -print0 | xargs -0 -I {} bash -c 'mkdir -p $3/$(dirname "$1") && cp -P "$2"/"{}" "$3"/"{}"' -- {} "$srcdir" "$srcbuild"
-
-    if [[ $staging == "disabled" ]]; then
-       echo "$EXTRA staging=$staging, srcbuild=srcdir"
-       srcbuild=$srcdir
-    fi
-       
+    # cd $srcdir && find -type l -print0 | xargs -0 -I {} bash -c 'mkdir -p $3/$(dirname "$1") && cp -P "$2"/"{}" "$3"/"{}"' -- {} "$srcdir" "$srcbuild"       
     [[ -d $srcbuild ]] && return 0
     
     mkdir -p $srcbuild
@@ -335,12 +333,7 @@ create_srcbuild() {
     cp -Pprf $srcdir/. $srcbuild
 }
 
-create_srcclean() {
-    if [[ $staging == "disabled" ]]; then
-       echo "$EXTRA staging=$staging, srcclean=srcdir"
-       srcclean=$srcdir
-    fi
-       
+create_srcclean() {    
     [[ -d $srcclean ]] && return 0
     
     mkdir -p $srcclean
@@ -383,22 +376,26 @@ iget_source() {
     patch_path="$srcdir.patch"	
     srcclean="$BOB_CLEAN/$basename"
     srcbuild="$BOB_BUILD/$basename/src"
-    
-    echo "$EXTRA found source directory: $srcdir"    
-
+   
     local staging
     staging=$(make -f $mk/$BOB_MAKEFILE_NAME -s get-staging 2>/dev/null)
-
     [[ $? != 0 ]] && staging=""
+
+    if [[ $staging == "disabled" ]]; then
+	echo "$EXTRA staging=$staging, srcbuild=srcclean=srcdir"
+	srcclean=$srcdir
+	srcbuild=$srcdir
+    fi
     
     if [ -d $srcdir ]; then
-	[[ $1 != "clean" ]] && create_srcbuild && create_srcclean
-	
+	echo "$EXTRA found srcdir=$srcdir"
+        create_srcbuild
+
 	return 0
     fi
-
+    
     if [[ $1 == "clean" ]]; then
-	echo "$EXTRA will not download source for clean operation"
+	echo "$EXTRA will not create source for clean operation"
 	return 8
     fi
     
@@ -411,8 +408,6 @@ iget_source() {
     if [ -d $srcclean ]; then
 	echo "$EXTRA $srcclean exists, copying it to $srcdir"
 	cp -Pprf $srcclean/. $srcdir
-	patch_source
-	[[ $? != 0 ]] && return 9
     elif [ -e $tar_path ]; then
 	# TODO: Most likely whatever service generated the tar
 	#       will have included the parent directory so this
@@ -429,22 +424,22 @@ iget_source() {
 	echo "$EXTRA extracted $basename.tar"
 
 	create_srcclean
-		
-	patch_source
-	[[ $? != 0 ]] && return 4
     else
 	echo "$ERROR Could not find source archive for target=$target"
 	return 2
     fi
-
+    
     if [ ! -d $srcdir ]; then
 	echo "$ERROR Failed to create source directory for target=$target"
 	return 1
     fi
+
+    patch_source
+    [[ $? != 0 ]] && return 9
     
     create_srcbuild
     
-    if [ ! -d $srcbuild ] || [ ! -d $srcdir ] || [ ! -d $srcclean ]; then
+    if [ ! -d $srcbuild ] || [ ! -d $srcclean ]; then
 	echo "$ERROR Failed to create source directories for target=$target"
 	return 10
     fi
@@ -485,15 +480,13 @@ build() {
     local target="$1"
     local parent="$2"
     
-    if [[ $target == "" ]]; then
-	return 0
-    fi
+    [[ $target == "" ]] && return 0
     
     echo "$INFO Entering target=$target (parent=$parent):"
     local mk
     checkget_target "build"
 
-    case "$?" in
+    case $? in
 	0) ;;
 	2) operation_suffix "build" 0
 	   return $?
@@ -512,9 +505,6 @@ build() {
     fi
     
     echo "$INFO Getting source directory for target=$target"
-    local srcdir
-    local srcdir_owner
-    local srcclean
     local srcbuild
     get_source "build"
     
@@ -581,12 +571,11 @@ clean() {
 	fi
 	
 	[[ $srcdir != $srclean ]] && rm -rf $srcclean
-
+	[[ $srcdir != $srcbuild ]] && rm -rf $srcbuild
+	
 	BOB_DISABLE_STATUS_FILES="yes"
     fi
-    
-    [[ $srcdir != $srcbuild ]] && rm -rf $srcbuild
-    
+
     operation_suffix "clean" $?
     return $?
 }
@@ -607,9 +596,7 @@ mkpatch() {
     fi
     
     local srcdir
-    local srcdir_owner
     local srcclean
-    local srcbuild
     get_source "mkpatch"
 
     if [[ $? != 0 ]]; then
@@ -625,8 +612,6 @@ mkpatch() {
 	1) operation_suffix "mkpatch" 0  ;;
 	*) operation_suffix "mkpatch" $? ;;
     esac
-    
-    return $?
 }
 
 cmdmux() {
