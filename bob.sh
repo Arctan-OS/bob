@@ -23,21 +23,22 @@
 # TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-# TODO: Improve this explanation
 autogen_usage() {
     AUTOGEN_USAGE=$(cat <<"EOF"
 # .autogen
          The .autogen directory is created by bob.sh to maintain various internal directories that
-         must not be modified by the user.
+         must not be modified by the user in normal operation.
 
-# .autogen/clean
-         Copies of each target's clean source code - prior to patching and any modification, as
-         extracted from the downloaded archive.
+## .autogen/clean
+         Contains copies of each bob targets' clean source code - prior to patching; exactly as
+	 extracted from the source code archive.
 
-# .autogen/build
-         Symbolic links to each target's source code files prior to building. Symbolic links are
-         copied out into the same relative posistion they are in originally. The source of the
-         linking is located in targets/$target/$target-$version/.
+## .autogen/build
+         Contains subdirectories for each target. Within each subdirectory is anohter subdirectory
+	 named "src" which contains a copy of the patched source code - this is the directory specified
+	 in the SOURCE_DIR variable passed to the build, clean, and prepare-rebuild Makefile targets.
+	 The parent of the "src" directory may be used by the Makefile targets to store out of source
+	 tree files.
    
 EOF
 		 )
@@ -48,15 +49,15 @@ print_usage() {
     USAGE=$(cat <<"EOF"
 # Usage		
          ```shell
-         $ MAKEFILE_PARAM0=... ./bob.sh [function] [targets] 
+         $ PARAM0=... ./bob.sh [function] [targets] 
          ```
          or:
          ```sh
          # File: ./my_bob.sh
-         export MAKEFILE_PARAM0="..."
-         export MAKEFILE_PARAM1="..."
-         export MAKEFILE_PARAM2="..."
-         export MAKEFILE_PARAM3="..."
+         export PARAM0="..."
+         export PARAM1="..."
+         export PARAM2="..."
+         export PARAM3="..."
          # ...
          source ./bob.sh
          ```
@@ -65,18 +66,15 @@ print_usage() {
          ```
 
          If the first target specified in targets is "all", then it is
-         expanded out to be everything in the ./targets folder
+	 expanded to be all subdirectories in $BOB_ROOT/targets which
+	 contain a Makefile named $BOB_MAKEFILE_NAME.
 
          Where function is one of:
 
 # build
-         The build command will build all specified targets for the first time.
-         It will attempt to resolve the dependencies of targets before the targets/
-         themselves.
-         
-         Circular dependencies are resolved by building the first dependency. For instance:
-         toolA -> toolB -> toolA, where "->" means dependes on, then toolB would be built
-         first.
+	 The build command will iterate through all targets specified. If a target is
+	 found, its dependencies are built first then the target itself. In case of a
+	 circular dependency, the dependency is built before the parent target.
 
 # clean
          The clean command will delete the build.complete file and invoke `make clean`
@@ -86,7 +84,7 @@ print_usage() {
                file
 
 # rebuild
-         Rebuild is an alias for running a clean command then a build command on each
+         Rebuild is an alias for running a clean operation then a build operation on each
          specified target.
          
          NOTE: This is not the same as `./bob.sh clean [targets] && ./bob.sh build [targets]`
@@ -94,14 +92,12 @@ print_usage() {
 
 # mkpatch
          The mkpatch command will use git to generate a patch between the current state of
-         the target and the version (commit) specified by the Makefile. Errors are redirected
-         to the git.errors file.
+         the target and the clean version of the source code.
 
-
-# Target Makefiles
+# Bob Makefiles
          See targets/toolA or toolB to see the base implementation of a valid Makefile.
 
-## Target's in Makefiles
+## Targets in Makefiles
          bob.sh will call into Makefiles to attain more information about a given target.
 	 It is important to distinguish target Makefiles, located in folders within the
 	 "targets" subdirectory ("bob target(s)"), and the targets of those Makefiles, actions
@@ -140,10 +136,28 @@ print_usage() {
          Echoes the name of the bob target whose source directory should
 	 be used.
 
+## Environment
+         bob.sh makes available the following environment variables when
+	 calling Makefile targets:
+### BOB_ROOT
+         The root directory in which the bob.sh, targets, and .autogen
+	 directories can be found. This value may be overwritten by the
+	 user.
+### SOURCE_DIR
+         A value passed when bob.sh calls a Makefile's build, clean, or
+	 prepare-rebuild targets. Its value is of the format:
+	 "$BOB_BUILD/$basename/src".
+### BOB_TARGETS
+         The same as "$BOB_ROOT/targets".
+### BOB_VERSION
+         A two component version string "$major.$minor".
+
 # Enabling additional Debugging
-         ```shell
-         $ BOB_DEBUG=yes ./bob.sh [args]
-         ```
+         To enable debugging information (set -x) set `BOB_DEBUG` to "yes".
+
+# Disabling Status Files
+         Status files such as build.complete/fail, rebuild.complete/fail may
+	 be disabled by setting `BOB_DISABLE_STATUS_FILES` to "yes".
 EOF
 	
 )
@@ -177,7 +191,7 @@ BOB_AUTOGEN_USAGE="$BOB_DOT_AUTOGEN/README.md"
 
 export BOB_VERSION="0.1"
 
-if [ $# < 1 ]; then
+if [ $# -lt 1 ]; then
     echo "$ERROR Need at leat one argument (all, rebuild, clean)"
     print_usage
 fi
@@ -186,15 +200,19 @@ operation_suffix() {
     # $1 = operation
     # $2 = $?
     echo "$INFO Leaving target=$target"
+
+    if [ "$will_complete" == "no" ]; then
+	BOB_DISABLE_STATUS_FILES="yes"
+    fi
     
-    if [[ $2 == 0 ]]; then
+    if [ $2 -eq 0 ]; then
 	echo "$INFO Successful $1 for target=$target ($BOB_DISABLE_STATUS_FILES)"
-	[[ $BOB_DISABLE_STATUS_FILES != "yes" ]] && touch $mk/$1.complete
+	[ "$BOB_DISABLE_STATUS_FILES" != "yes" ] && touch $mk/$1.complete
 	return 0
     fi
 
     echo "$ERROR Failed to $1 target=$target"
-    if [[ $mk != "" ]] && [[ $BOB_DISABLE_STATUS_FILES != "yes" ]]; then
+    if [ "$mk" != "" ] && [ "$BOB_DISABLE_STATUS_FILES" != "yes" ]; then
 	echo "$2" > "$mk/$1.fail"
     fi
     
@@ -233,11 +251,11 @@ overwrite_source() {
     local srcdir_overwrite
     srcdir_overwrite=$(mk_retprop get-source-dir)
     
-    if [ $? == 0 ]; then
+    if [ $? -eq 0 ]; then
 	echo "$EXTRA overwrote source directory to $srcdir_overwrite"
 	srcdir_owner=""
 	srcdir=$srcdir_overwrite
-	[[ ! -d $srcdir ]] && return 1
+	[ ! -d "$srcdir" ] && return 1
 	return 0
     else
 	echo "$EXTRA no source directory overwrite specified"
@@ -245,12 +263,12 @@ overwrite_source() {
 
     srcdir_overwrite=$(mk_retprop use-source-dir-of)
     
-    if [ $? == 0 ]; then
+    if [ $? -eq 0 ]; then
 	echo "$EXTRA attempting to use source directory of target=$srcdir_overwrite"
 
 	target=$srcdir_overwrite
 	checkget_target "get_source"
-	if [[ $? != 0 ]]; then
+	if [ $? -ne 0 ]; then
 	    mk=$tmp_mk
 	    target=$tmp_target
 	    return 2
@@ -273,7 +291,7 @@ download_source() {
     local urls
     urls=($(mk_retprop get-urls))
     
-    if [ $? != 0 ]; then
+    if [ $? -ne 0 ]; then
 	echo "$EXTRA no URLs specified"
 	return 1
     fi
@@ -282,7 +300,7 @@ download_source() {
 	echo "$EXTRA attempting to download $url"
 	curl -o $tar_path -L $url
 
-	if [[ $? == 0 ]]; then
+	if [ $? -eq 0 ]; then
 	    echo "$EXTRA downloaded $url"
 	    return 0
 	fi
@@ -302,7 +320,7 @@ patch_source() {
     echo "$EXTRA patching $srcdir with $patch_path"
     cd $srcdir && patch -f -p1 < $patch_path
     
-    if [ $? != 0 ]; then
+    if [ $? -ne 0 ]; then
 	echo "$ERROR Failed to patch $basename"
 	rm -rf $srcdir
 	return 1
@@ -342,14 +360,14 @@ iget_source() {
 
     version=$(mk_retprop get-version)
 
-    if [ $? != 0 ]; then
+    if [ $? -ne 0 ]; then
 	echo "$ERROR Could not get version number"
 	return 6
     fi
     
     basename=$(mk_retprop get-basename)
     
-    if [ $? != 0 ]; then
+    if [ $? -ne 0 ]; then
 	basename="$target-$version"
 	echo "$EXTRA no basename provided, using default"
     fi
@@ -407,7 +425,7 @@ iget_source() {
 	#       be detected and corrected for?
 	tar -xf $tar_path -C $srcdir --strip-components=1
 	
-	if [ $? != 0 ]; then
+	if [ $? -ne 0 ]; then
 	    echo "$ERROR Failed to extract $basename.tar"
 	    rm -rf $srcdir
 	    return 3
@@ -427,7 +445,7 @@ iget_source() {
     fi
 
     patch_source
-    [ $? != 0 ] && return 9
+    [ $? -ne 0 ] && return 9
     
     create_srcbuild
     
@@ -458,10 +476,10 @@ build_deps() {
 
     for dep in "${deps[@]}"; do
 	if [ "$parent" == "$dep" ]; then
-	    echo "$WARN Circular dependency detected, building target=$target then parent=$parent"
+	    echo "$WARN Circular dependency detected, building only target=$target"
 	else
 	    build $dep $target
-	    [ $? != 0 ] && return 1
+	    [ $? -ne 0 ] && return 1
 	fi
     done
 
@@ -478,9 +496,22 @@ build() {
     local mk
     checkget_target "build"
 
-    if [ $? != 0 ]; then
+    if [ $? -ne 0 ]; then
 	operation_suffix "build" 1
 	return $?
+    fi
+
+    local will_complete
+    will_complete=$(mk_retprop will-complete)
+
+    [ $? -ne 0 ] && will_complete=""
+
+    # TODO: For some reason, a status file is made, despite a check
+    #       in operation_suffix for this value. FIX THIS
+    if [ "$will_complete" == "no" ]; then
+	echo "$EXTRA target will never complete"
+    else
+	echo "$EXTRA target will complete"
     fi
     
     local status="$BOB_TARGETS/$target/build.complete"
@@ -501,7 +532,7 @@ build() {
     
     build_deps
 
-    if [ $? != 0 ]; then
+    if [ $? -ne 0 ]; then
 	echo "$ERROR Failed to build dependencies"
 	operation_suffix "build" 3
 	return $?	
@@ -515,7 +546,7 @@ build() {
     local srcbuild
     get_source "build"
     
-    if [ $? != 0 ]; then
+    if [ $? -ne 0 ]; then
 	operation_suffix "build" 10
 	return $?
     fi
@@ -540,7 +571,7 @@ clean() {
     local mk
     checkget_target "clean"
 
-    if [ $? != 0 ]; then
+    if [ $? -ne 0 ]; then
 	operation_suffix "clean" 1
 	return $?
     fi
@@ -594,7 +625,7 @@ mkpatch() {
     local mk
     checkget_target "mkpatch"
 
-    if [ $? != 0 ]; then
+    if [ $? -ne 0 ]; then
 	operation_suffix "mkpatch" 1
 	return $?
     fi
@@ -603,7 +634,7 @@ mkpatch() {
     local srcclean
     get_source "mkpatch"
 
-    if [ $? != 0 ]; then
+    if [ $? -ne 0 ]; then
 	operation_suffix "mkpatch" 2
 	return $?
     fi
@@ -622,7 +653,7 @@ cmdmux() {
     local tmp_PWD=$PWD
     local tmp_BOB_DISABLE_STATUS_FILES=$BOB_DISABLE_STATUS_FILES
     
-    case $1 in
+    case "$1" in
 	"build")	
 	    build "$target"
 	    ;;
@@ -672,7 +703,7 @@ main() {
 	targets=("${target_paths//"$BOB_TARGETS/"/}")
     fi
     
-    [ $# == 2 ] && cmdmux $@
+    [ $# -eq 2 ] && cmdmux $@
     
     for target in $targets; do
 	cmdmux $@
