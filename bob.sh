@@ -196,26 +196,46 @@ if [ $# -lt 1 ]; then
     print_usage
 fi
 
+mk_retprop() {
+    # $1 = property
+    local val
+    local mk_retprop_rc
+    val=$(make -f $mk/$BOB_MAKEFILE_NAME -s $1 2>/dev/null)
+    mk_retprop_rc=$?
+    echo $val
+    return $mk_retprop_rc
+}
+
 operation_suffix() {
     # $1 = operation
     # $2 = $?
     echo "$INFO Leaving target=$target"
 
-    if [ "$will_complete" == "no" ]; then
-	BOB_DISABLE_STATUS_FILES="yes"
-    fi
+    local tmp_BOB_DISABLE_STATUS_FILES=$BOB_DISABLE_STATUS_FILES
     
-    if [ $2 -eq 0 ]; then
-	echo "$INFO Successful $1 for target=$target ($BOB_DISABLE_STATUS_FILES)"
-	[ "$BOB_DISABLE_STATUS_FILES" != "yes" ] && touch $mk/$1.complete
-	return 0
+    local will_complete
+    will_complete=$(mk_retprop will-complete)
+
+    [ $? -ne 0 ] && will_complete=""
+    
+    if [ "$will_complete" == "no" ]; then
+	echo "$EXTRA target will never complete"
+	BOB_DISABLE_STATUS_FILES="yes"
+    else
+	echo "$EXTRA target will complete"
     fi
 
-    echo "$ERROR Failed to $1 target=$target"
-    if [ "$mk" != "" ] && [ "$BOB_DISABLE_STATUS_FILES" != "yes" ]; then
-	echo "$2" > "$mk/$1.fail"
+    echo "$EXTRA disable status files=$BOB_DISABLE_STATUS_FILES"
+    
+    if [ $2 -eq 0 ]; then
+	echo "$INFO Successful $1 for target=$target"
+	[ "$mk" != "" ] && [ "$BOB_DISABLE_STATUS_FILES" != "yes" ] && touch "$mk/$1.complete"
+    else
+	echo "$ERROR Failed to $1 target=$target"
+	[ "$mk" != "" ] && [ "$BOB_DISABLE_STATUS_FILES" != "yes" ] && echo "$2" > "$mk/$1.fail"
     fi
     
+    BOB_DISABLE_STATUS_FILES=$tmp_BOB_DISABLE_STATUS_FILES
     return $2
 }
 
@@ -228,16 +248,6 @@ checkget_target() {
     mk="$BOB_TARGETS/$target"
     
     return 0
-}
-
-mk_retprop() {
-    # $1 = property
-    local val
-    local mk_retprop_rc
-    val=$(make -f $mk/$BOB_MAKEFILE_NAME -s $1 2>/dev/null)
-    mk_retprop_rc=$?
-    echo $val
-    return $mk_retprop_rc
 }
 
 # Defined Behavior:
@@ -500,19 +510,6 @@ build() {
 	operation_suffix "build" 1
 	return $?
     fi
-
-    local will_complete
-    will_complete=$(mk_retprop will-complete)
-
-    [ $? -ne 0 ] && will_complete=""
-
-    # TODO: For some reason, a status file is made, despite a check
-    #       in operation_suffix for this value. FIX THIS
-    if [ "$will_complete" == "no" ]; then
-	echo "$EXTRA target will never complete"
-    else
-	echo "$EXTRA target will complete"
-    fi
     
     local status="$BOB_TARGETS/$target/build.complete"
     
@@ -651,7 +648,6 @@ mkpatch() {
 
 cmdmux() {
     local tmp_PWD=$PWD
-    local tmp_BOB_DISABLE_STATUS_FILES=$BOB_DISABLE_STATUS_FILES
     
     case "$1" in
 	"build")	
@@ -676,8 +672,7 @@ cmdmux() {
 	    print_usage
 	    ;;
     esac
-
-    BOB_DISABLE_STATUS_FILES=$tmp_BOB_DISABLE_STATUS_FILES
+    
     PWD=$tmp_PWD
 }
 
